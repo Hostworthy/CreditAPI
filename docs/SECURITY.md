@@ -118,8 +118,12 @@ sign-in link but no credentials.
   SHA-256 checksum is verified against the release manifest at build time.
 - The Cursor CLI package is downloaded over HTTPS from Cursor's download
   server, the same package `https://cursor.com/install` uses. Cursor publishes
-  no checksums for it; pin `CURSOR_VERSION` for repeatable builds, or build
-  with `CURSOR_VERSION=none` if you do not use Cursor.
+  no checksums, so the archive is checked against SHA-256 sums recorded in
+  `scripts/cursor-checksums.txt` for the pinned version. Build with
+  `CURSOR_VERSION=none` if you do not use Cursor.
+- Base images are pinned by digest and CI actions by commit; Dependabot
+  proposes updates. CI runs `staticcheck` and `govulncheck` on every change
+  and weekly.
 
 ## Recommendations
 
@@ -134,5 +138,6 @@ sign-in link but no credentials.
 
 ## Reporting a Problem
 
-Open an issue on GitHub without including tokens, keys or logs that contain
-personal data.
+Report security problems privately through GitHub's private vulnerability
+reporting (the repository's Security tab, "Report a vulnerability"), not in a
+public issue. Do not include tokens, keys or logs that contain personal data.

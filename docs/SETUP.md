@@ -8,7 +8,9 @@ from any OpenAI-compatible app. For a short overview, see
 
 - At least one subscription: Claude Pro or Max, and/or a Cursor plan
 - A server or home lab machine with Docker and Docker Compose
-- About 1 GB of free memory (each request in progress runs one CLI process of roughly 250-350 MB)
+- About 1 GB of free memory (each request in progress runs one CLI process; a
+  Claude process uses roughly 250-350 MB, a Cursor process has not been
+  measured)
 - Optional but recommended: a domain name and HTTPS through a reverse proxy
 
 ## Install
@@ -226,9 +228,11 @@ git pull
 docker compose up -d --build
 ```
 
-The image installs the latest `stable` Claude Code CLI and the latest Cursor
-CLI at build time. To pin versions, build with
-`docker compose build --build-arg CLAUDE_VERSION=2.1.323 --build-arg CURSOR_VERSION=2026.11.22-e9042b2`.
+The image installs pinned versions of the Claude Code CLI and the Cursor CLI
+(see the `ARG` lines in the `Dockerfile`; Dependabot proposes base image
+updates). To build other versions, pass `--build-arg CLAUDE_VERSION=...` and
+`--build-arg CURSOR_VERSION=...`; a Cursor version also needs its checksums in
+`scripts/cursor-checksums.txt`, or `--build-arg CURSOR_ALLOW_UNVERIFIED=1`.
 Your keys, subscriptions and logins survive updates in the data volume. An
 install from before subscriptions existed is moved over on the first start:
 its saved Claude login becomes the `Claude` subscription and every existing key
@@ -243,8 +247,8 @@ may use it.
 | `QUEUE_TIMEOUT` | `2m` | How long extra requests wait before `429 server_busy` |
 | `mem_limit` | `1536m` | Container memory limit in `docker-compose.yml` |
 
-The server itself uses about 6-15 MB. Each request adds 1-2 seconds of start-up
-time for the CLI process (a little more for Cursor).
+The server itself uses about 6-15 MB. Each Claude request adds 1-2 seconds of
+start-up time for the CLI process; Cursor has not been measured.
 
 ## Troubleshooting
 

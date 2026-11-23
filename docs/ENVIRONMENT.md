@@ -96,8 +96,9 @@ unless you set them.
 
 | Argument         | Default  | Description                                                    |
 | ---------------- | -------- | -------------------------------------------------------------- |
-| `CLAUDE_VERSION` | `stable` | `stable`, `latest` or an exact Claude Code version (`2.1.323`). |
-| `CURSOR_VERSION` | `latest` | `latest`, an exact Cursor CLI version (`2026.11.22-e9042b2`) or `none` for an image without Cursor (about 540 MB smaller). |
+| `CLAUDE_VERSION` | `2.1.325` | An exact Claude Code version (checked against Anthropic's release manifest), `stable` or `latest`. |
+| `CURSOR_VERSION` | `2026.11.22-e9042b2` | An exact Cursor CLI version whose checksums are in `scripts/cursor-checksums.txt`, `latest`, or `none` for an image without Cursor (about 540 MB smaller). |
+| `CURSOR_ALLOW_UNVERIFIED` | `0` | `1` installs a Cursor version without recorded checksums. |
 | `VERSION`        | `dev`    | Version reported by `creditapi version` and in logs.   |
 
 ```bash

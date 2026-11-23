@@ -20,6 +20,7 @@ make check      # tidy, gofmt, vet, tests: run before committing
 make ci         # what CI runs: gofmt diff, vet, race tests
 make e2e-ci     # Bruno end-to-end suite on the fake CLIs (needs Node)
 make e2e        # server on the fake CLIs for manual testing (.env.bruno)
+make lint       # staticcheck and govulncheck (also a CI job, and weekly)
 ```
 
 ## Layout
@@ -34,6 +35,10 @@ make e2e        # server on the fake CLIs for manual testing (.env.bruno)
 - `src/tests`: integration tests on the full server; `src/tests/support`: helpers
   and the fake CLIs (`fakecore`, `fakeclaude`, `fakecursor`, `fakes`).
 - `bruno/`: Bruno collection (`.bru`), ordered folders, `environments/local.bru`.
+  Edit the `.bru` files by hand; there is no generator.
+- `internal/forwarded`: which client address, scheme and host a request came
+  from. Forwarding headers count only from `TRUSTED_PROXIES`; never read
+  `X-Forwarded-*` directly.
 - `docs/`: SETUP, DEV, API, ENVIRONMENT, SECURITY.
 
 ## Conventions
@@ -62,6 +67,9 @@ make e2e        # server on the fake CLIs for manual testing (.env.bruno)
   deny rules in `cursor.Backend.permissions` and the absence of `--force`.
 - Each subscription's CLI gets only its own credential and `HOME`
   (`agent.EnvBuilder` drops shared config locations); keep it that way.
+- Secrets: register any new credential with `logging.RegisterSecret`, and pass
+  text that reaches clients through the handler's `clean`.
+- Client text placed inside prompt structure goes through `agent.EscapeTags`.
 - Format with gofmt. Keep comments and docs plain; no em-dashes.
 
 ## Gotchas

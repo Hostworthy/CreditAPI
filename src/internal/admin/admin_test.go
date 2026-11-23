@@ -382,3 +382,35 @@ func TestPublicURLMakesCookieSecure(t *testing.T) {
 		t.Fatalf("origin from PUBLIC_URL refused: %d", resp.StatusCode)
 	}
 }
+
+func TestCookieValidation(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(&config.Config{DataDir: dir, AdminPassword: pw}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withCookie := func(v string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.AddCookie(&http.Cookie{Name: cookieName, Value: v})
+		return r
+	}
+	future := time.Now().Add(time.Hour).Unix()
+	good := a.sign(future, "nonce")
+	if !a.validCookie(withCookie(good)) {
+		t.Fatal("a fresh cookie should be valid")
+	}
+	expired := a.sign(time.Now().Add(-time.Minute).Unix(), "nonce")
+	tampered := strings.Replace(good, "nonce", "other", 1)
+	for name, v := range map[string]string{"expired": expired, "tampered": tampered, "two parts": "1.2", "empty": "", "junk": "a.b.c"} {
+		if a.validCookie(withCookie(v)) {
+			t.Errorf("%s cookie accepted", name)
+		}
+	}
+	other, _ := New(&config.Config{DataDir: t.TempDir(), AdminPassword: pw}, nil, nil, nil)
+	if other.validCookie(withCookie(good)) {
+		t.Fatal("a cookie from another installation must not be valid")
+	}
+	if !a.passwordOK(pw) || a.passwordOK(pw+"x") || a.passwordOK("") {
+		t.Fatal("password check")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -82,5 +83,53 @@ func TestLegacyPrefixStillAuthenticates(t *testing.T) {
 	}
 	if s.Authenticate("sk-other-"+legacy) != nil {
 		t.Fatal("unknown prefix accepted")
+	}
+}
+
+func TestConcurrentUsageAndFlush(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keys.json")
+	s, _ := Open(path)
+	k, _, err := s.Create("busy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); s.RecordUsage(k.ID, 3, 2) }()
+		go func() { defer wg.Done(); _ = s.Flush() }()
+	}
+	wg.Wait()
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := Open(path)
+	got := again.List()[0]
+	if got.Requests != 20 || got.InputTokens != 60 || got.OutputTokens != 40 {
+		t.Fatalf("usage not saved: %+v", got)
+	}
+	if s.Authenticate("") != nil || s.Authenticate("sk-other-x") != nil {
+		t.Fatal("foreign prefixes must not authenticate")
+	}
+	if _, err := s.Update("missing", nil, nil); err == nil {
+		t.Fatal("updating a missing key should fail")
+	}
+}
+
+func TestSaveFailureKeepsStoreConsistent(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Open(filepath.Join(dir, "sub", "keys.json"))
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	if _, _, err := s.Create("x"); err == nil {
+		t.Fatal("expected a save error")
+	}
+	if len(s.List()) != 0 {
+		t.Fatal("a key that could not be saved must not be kept")
 	}
 }
