@@ -1,0 +1,28 @@
+services:
+  claude-api:
+    image: ghcr.io/atb00ker/claude-max-to-api:latest
+    build: .
+    container_name: claude-max-to-api
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      # Keys, the saved Claude login and CLI state live here.
+      - claude-data:/data
+      # Optional: MCP servers Claude may use itself (see examples/mcp.json),
+      # then set MCP_CONFIG=/config/mcp.json in .env
+      # - ./mcp.json:/config/mcp.json:ro
+    # Each request runs one claude process (roughly 200-300 MB while active).
+    mem_limit: 1536m
+
+    # To reach SparkyFitness by container name, join its network:
+    # networks: [sparkyfitness]
+
+volumes:
+  claude-data:
+
+# networks:
+#   sparkyfitness:
+#     external: true
+#     name: sparkyfitness_default

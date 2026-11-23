@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>Claude API Proxy · Admin</title>
+<link rel="stylesheet" href="/assets/app.css">
+<script src="/assets/app.js" defer></script>
+</head>
+<body data-page="admin">
+<header class="topbar">
+  <a class="brand" href="/admin">Claude API Proxy</a>
+  <nav class="nav" data-auth-only hidden>
+    <a href="/admin" aria-current="page">Keys</a>
+    <a href="/login">Claude login</a>
+    <button type="button" class="link" data-action="signout">Sign out</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <section class="card" id="signin" hidden>
+    <h1>Admin sign-in</h1>
+    <form id="signin-form" class="stack">
+      <label for="password">Admin password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit" class="primary">Sign in</button>
+      <p class="error" id="signin-error" role="alert"></p>
+    </form>
+  </section>
+
+  <div data-auth-only hidden>
+    <section class="card">
+      <div class="row space">
+        <h2>Claude</h2>
+        <a class="button" href="/login">Manage login</a>
+      </div>
+      <p id="claude-summary" class="muted">Loading…</p>
+      <div id="usage" class="usage"></div>
+      <dl id="runtime" class="facts"></dl>
+    </section>
+
+    <section class="card">
+      <h2>Virtual API keys</h2>
+      <p class="muted">Give each app (for example SparkyFitness) its own key. The full key is shown only once.</p>
+      <form id="create-key" class="row wrap-row">
+        <label for="key-name" class="sr-only">Key name</label>
+        <input id="key-name" name="name" placeholder="Name, e.g. sparkyfitness" maxlength="100" required autocomplete="off">
+        <button type="submit" class="primary">Create key</button>
+      </form>
+      <p class="error" id="key-error" role="alert"></p>
+
+      <div id="new-secret" class="secret" hidden>
+        <p><strong>Copy this key now.</strong> It will not be shown again.</p>
+        <div class="row">
+          <code id="new-secret-value" class="grow"></code>
+          <button type="button" data-copy="#new-secret-value">Copy</button>
+        </div>
+      </div>
+
+      <ul id="key-list" class="keys"></ul>
+      <p id="no-keys" class="muted" hidden>No keys yet.</p>
+    </section>
+
+    <section class="card">
+      <h2>Connect an app</h2>
+      <dl class="facts">
+        <dt>Base URL</dt><dd><code id="base-url"></code> <button type="button" class="small" data-copy="#base-url">Copy</button></dd>
+        <dt>API key</dt><dd>A virtual key from above</dd>
+        <dt>Models</dt><dd id="model-list"></dd>
+      </dl>
+      <details>
+        <summary>SparkyFitness setup</summary>
+        <ol class="steps">
+          <li>In SparkyFitness open AI settings and add a service of type <em>OpenAI Compatible</em>.</li>
+          <li>Base URL: the value above (it must end in <code>/v1</code>).</li>
+          <li>API key: a virtual key created here.</li>
+          <li>Turn on <em>Use custom model</em> and enter <code>sonnet</code> (or <code>opus</code> / <code>haiku</code>).</li>
+          <li>Pick the same service for Vision so food photos and nutrition labels work.</li>
+          <li>If SparkyFitness reaches this server on a private address, it may need <code>ALLOW_PRIVATE_NETWORK_AI=true</code>.</li>
+        </ol>
+      </details>
+      <details>
+        <summary>Test with curl</summary>
+        <pre id="curl-example"></pre>
+      </details>
+    </section>
+  </div>
+</main>
+
+<dialog id="confirm-dialog">
+  <form method="dialog" class="stack">
+    <p id="confirm-text"></p>
+    <div class="row end">
+      <button value="cancel" type="submit">Cancel</button>
+      <button value="ok" type="submit" class="danger">Delete</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>

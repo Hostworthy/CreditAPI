@@ -1,0 +1,8 @@
+# Local runtime data and secrets
+/data/
+.env
+mcp.json
+
+# Build output
+/claude-max-to-api
+/dist/
