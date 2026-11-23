@@ -2,7 +2,7 @@
 // of secrets and user content.
 //
 // Messages are stable event IDs of the form
-// claude-max-to-api.<operation>.<action>.<status> (see docs/CONTRIBUTING.md).
+// claude-max-to-api.<operation>.<action>.<status> (see docs/DEV.md).
 //
 // Safe fields: request_id, method, path, status, duration_ms, key, key_id,
 // model, stream, images, tools, finish, tool_calls, prompt_tokens,

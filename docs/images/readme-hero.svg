@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 190" role="img" aria-labelledby="title desc">
+  <title id="title">claude-max-to-api</title>
+  <desc id="desc">A phone app sends OpenAI-style requests to a small server holding API keys, which answers them with the Claude Code CLI on your subscription.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8a847c"/>
+    </marker>
+  </defs>
+  <style>
+    .line { fill: none; stroke: #8a847c; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    .soft { fill: #8a847c; fill-opacity: 0.12; }
+    .accent { fill: #d97757; }
+    .accent-line { fill: none; stroke: #d97757; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    .label { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #8a847c; }
+  </style>
+
+  <!-- Phone with a food photo and chat bubbles -->
+  <rect class="soft" x="24" y="22" width="86" height="148" rx="16"/>
+  <rect class="line" x="24" y="22" width="86" height="148" rx="16"/>
+  <line class="line" x1="56" y1="34" x2="78" y2="34"/>
+  <rect class="line" x="36" y="48" width="62" height="40" rx="8"/>
+  <circle class="accent-line" cx="67" cy="68" r="12"/>
+  <circle class="accent" cx="63" cy="65" r="3"/>
+  <circle class="accent" cx="71" cy="71" r="3"/>
+  <rect class="soft" x="36" y="98" width="52" height="16" rx="8"/>
+  <rect class="accent" x="52" y="122" width="46" height="16" rx="8"/>
+  <rect class="soft" x="36" y="146" width="40" height="12" rx="6"/>
+
+  <!-- Arrow: OpenAI API -->
+  <line class="line" x1="122" y1="96" x2="186" y2="96" marker-end="url(#arrow)"/>
+  <text class="label" x="154" y="84" text-anchor="middle">OpenAI API</text>
+
+  <!-- Server with a key -->
+  <rect class="soft" x="196" y="52" width="88" height="88" rx="14"/>
+  <rect class="line" x="196" y="52" width="88" height="88" rx="14"/>
+  <line class="line" x1="210" y1="74" x2="270" y2="74"/>
+  <circle class="accent" cx="216" cy="63" r="3"/>
+  <circle class="accent-line" cx="226" cy="106" r="11"/>
+  <path class="accent-line" d="M237 106 H266 M256 106 V116 M264 106 V113"/>
+  <text class="label" x="240" y="162" text-anchor="middle">your server</text>
+
+  <!-- Arrow: claude -p -->
+  <line class="line" x1="296" y1="96" x2="360" y2="96" marker-end="url(#arrow)"/>
+  <text class="label" x="328" y="84" text-anchor="middle">claude -p</text>
+
+  <!-- Terminal running the Claude Code CLI -->
+  <rect class="soft" x="370" y="52" width="88" height="88" rx="12"/>
+  <rect class="line" x="370" y="52" width="88" height="88" rx="12"/>
+  <line class="line" x1="370" y1="70" x2="458" y2="70"/>
+  <circle class="soft" cx="382" cy="61" r="3"/>
+  <circle class="soft" cx="392" cy="61" r="3"/>
+  <path class="accent-line" d="M386 94 L398 104 L386 114"/>
+  <line class="accent-line" x1="406" y1="116" x2="428" y2="116"/>
+  <text class="label" x="414" y="162" text-anchor="middle">Claude Code</text>
+</svg>

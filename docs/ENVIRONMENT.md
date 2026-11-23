@@ -1,7 +1,10 @@
-# Configuration
+# Environment Variables
 
-All settings are environment variables. For Docker, put them in `.env` (see
-[`.env.example`](../.env.example)), which `docker-compose.yml` passes in.
+All settings are environment variables. To run the server, see
+[SETUP.md](SETUP.md); for development, see [DEV.md](DEV.md).
+
+For Docker, put them in `.env` (see [`.env.example`](../.env.example)), which
+`docker-compose.yml` passes in.
 
 When running the binary directly, `.env` in the working directory is loaded
 automatically. Set `ENV_CLAUDE_MAX_TO_API=/path/to/file.env` in the shell to load

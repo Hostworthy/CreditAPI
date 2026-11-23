@@ -1,9 +1,9 @@
 # API
 
 Two surfaces: the OpenAI-compatible API used by apps, and the admin API used by
-the `/admin` and `/login` pages (and scripts). Usage and setup are in
-[README.md](../README.md); environment variables in
-[CONFIGURATION.md](CONFIGURATION.md).
+the `/admin` and `/login` pages (and scripts). Setup is in
+[SETUP.md](SETUP.md); environment variables in
+[ENVIRONMENT.md](ENVIRONMENT.md).
 
 ## Table of contents
 
