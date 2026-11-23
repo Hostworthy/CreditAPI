@@ -63,7 +63,13 @@ your own account before relying on it.
   rest of that window.
 - Pages are served with a strict Content Security Policy (no inline scripts),
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
-- Changing `ADMIN_PASSWORD` signs every session out.
+- Changing `ADMIN_PASSWORD`, or signing out, signs every session out.
+- The sign-in lockout counts failures per client address (per /64 for IPv6).
+  Forwarding headers are ignored unless the request comes from
+  `TRUSTED_PROXIES`, so a client cannot pretend to be someone else.
+- The server refuses to start with the example `ADMIN_PASSWORD`.
+- Sign-in links are shown only when they point to the provider's own site.
+- `/healthz` lists subscription names only to the admin.
 
 ## Outbound Requests
 

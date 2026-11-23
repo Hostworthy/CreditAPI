@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atb00ker/CreditAPI/src/internal/forwarded"
 )
 
 // Config holds every runtime setting. All values come from the environment
@@ -23,6 +25,9 @@ type Config struct {
 	// PublicURL is how users reach this server (e.g. https://claude.example.com).
 	// It is used for the login link in "login required" errors.
 	PublicURL string
+	// TrustedProxies are proxies whose X-Forwarded-* headers are believed
+	// (TRUSTED_PROXIES). Empty means forwarding headers are ignored.
+	TrustedProxies *forwarded.Trust
 
 	ClaudeBin string
 
@@ -59,7 +64,7 @@ type Config struct {
 // OwnEnvVars are consumed by this server and never forwarded to the CLI
 // subprocesses (credentials are passed per subscription).
 var OwnEnvVars = []string{
-	"ADMIN_PASSWORD", "HOST", "PORT", "DATA_DIR", "ENV_CREDITAPI", "ENV_PATH", "PUBLIC_URL",
+	"ADMIN_PASSWORD", "HOST", "PORT", "DATA_DIR", "ENV_CREDITAPI", "ENV_PATH", "PUBLIC_URL", "TRUSTED_PROXIES",
 	"CLAUDE_BIN", "DEFAULT_MODEL", "MODELS", "CURSOR_BIN", "CURSOR_MODELS", "CURSOR_DEFAULT_MODEL",
 	"MODEL_ALIASES", "STRICT_MODELS", "DEFAULT_EFFORT",
 	"DEFAULT_SYSTEM_PROMPT", "MAX_CONCURRENT", "MAX_PENDING", "QUEUE_TIMEOUT", "REQUEST_TIMEOUT",
@@ -142,6 +147,9 @@ func Load() (*Config, error) {
 	}
 	if c.MaxConcurrent < 1 {
 		return nil, errors.New("MAX_CONCURRENT must be at least 1")
+	}
+	if c.TrustedProxies, err = forwarded.Parse(os.Getenv("TRUSTED_PROXIES")); err != nil {
+		return nil, fmt.Errorf("TRUSTED_PROXIES: %w", err)
 	}
 	if c.MaxPending, err = envInt("MAX_PENDING", c.MaxConcurrent*4); err != nil {
 		return nil, err

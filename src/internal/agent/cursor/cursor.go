@@ -107,6 +107,8 @@ func (b *Backend) Login(acc *agent.Account) agent.LoginSpec {
 		Args: []string{"login"},
 		Env:  loginEnv(acc),
 		Done: acc.Tokens.Touch,
+		// Unconfirmed against the real CLI; the documented sign-in host.
+		URLHosts: []string{"cursor.com", "cursor.sh"},
 	}
 }
 

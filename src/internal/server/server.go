@@ -33,6 +33,7 @@ type Server struct {
 	Slots   *agent.Slots
 
 	bridge  *agent.Bridge
+	admin   *admin.Admin
 	handler http.Handler
 }
 
@@ -94,6 +95,7 @@ func New(cfg *config.Config, version string) (*Server, error) {
 		return nil, err
 	}
 	adm.Register(mux)
+	s.admin = adm
 	mux.HandleFunc("GET /healthz", s.healthz)
 
 	s.handler = withRequestLogging(mux)
@@ -103,9 +105,10 @@ func New(cfg *config.Config, version string) (*Server, error) {
 // Handler returns the root HTTP handler.
 func (s *Server) Handler() http.Handler { return s.handler }
 
-// healthz reports liveness plus each enabled subscription's login state.
-// logins_ok is false when any of them is known to need a sign-in.
-func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
+// healthz reports liveness and whether any enabled subscription is known to
+// need a sign-in. The per-subscription list (names included) is shown only
+// to the admin (session cookie or bearer password).
+func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	type subHealth struct {
 		ID       string `json:"id"`
 		Name     string `json:"name"`
@@ -114,6 +117,7 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 	}
 	list := []subHealth{}
 	ok := true
+	needed := 0
 	for _, sub := range s.Subs.Store.List() {
 		if sub.Disabled {
 			continue
@@ -124,11 +128,17 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 		}
 		if state == "login_required" {
 			ok = false
+			needed++
 		}
 		list = append(list, subHealth{ID: sub.ID, Name: sub.Name, Provider: sub.Provider, Login: state})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "logins_ok": ok, "subscriptions": list})
+	w.Header().Set("Cache-Control", "no-store")
+	out := map[string]any{"ok": true, "logins_ok": ok, "subscription_count": len(list), "logins_needed": needed}
+	if s.admin != nil && s.admin.Authorized(r) {
+		out["subscriptions"] = list
+	}
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // Start runs background work until ctx ends: CLI version detection and

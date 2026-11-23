@@ -165,7 +165,7 @@ address is locked out (`429`).
 | Method   | Path                              | Body                         | Description                                                  |
 | -------- | --------------------------------- | ---------------------------- | ------------------------------------------------------------ |
 | `POST`   | `/admin/api/session`              | `{"password"}`               | Sign in; sets the `creditapi_admin` cookie (7 days)               |
-| `DELETE` | `/admin/api/session`              |                              | Sign out                                                     |
+| `DELETE` | `/admin/api/session`              |                              | Sign out. This signs out every browser (sessions are not stored, so the signing secret is replaced) |
 | `GET`    | `/admin/api/me`                   |                              | `{"authenticated": bool}`                                    |
 | `GET`    | `/admin/api/keys`                 |                              | List keys with usage counters and `subscriptions` (never secrets or hashes) |
 | `POST`   | `/admin/api/keys`                 | `{"name", "subscriptions"?}` | Create a key; the `secret` is returned only here. Without `subscriptions` the key may use every subscription |
@@ -211,15 +211,21 @@ curl -X POST https://your-server/admin/api/keys \
 
 ## Health
 
-`GET /healthz` (no authentication):
+`GET /healthz` needs no authentication:
 
 ```json
-{"ok": true, "logins_ok": true, "subscriptions": [
-  {"id": "1a2b3c4d5e6f", "name": "Claude (Personal)", "provider": "claude", "login": "valid"}
-]}
+{"ok": true, "logins_ok": true, "subscription_count": 2, "logins_needed": 0}
 ```
 
-Each enabled subscription's `login` is `valid`, `login_required` or `unknown`
-(nothing has been tried since the server started or the credential changed).
-`logins_ok` is false when any of them is `login_required`. Every response carries
+`logins_ok` is false when any enabled subscription is known to need a sign-in;
+`logins_needed` counts them. With the admin session or
+`Authorization: Bearer <ADMIN_PASSWORD>`, the response also lists each enabled
+subscription:
+
+```json
+"subscriptions": [{"id": "1a2b3c4d5e6f", "name": "Claude (Personal)", "provider": "claude", "login": "valid"}]
+```
+
+Each `login` is `valid`, `login_required` or `unknown` (nothing has been tried
+since the server started or the credential changed). Every response carries
 an `X-Request-Id` header; a valid incoming `X-Request-Id` is reused.

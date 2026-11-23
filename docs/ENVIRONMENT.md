@@ -20,6 +20,7 @@ shell always win.
 | `HOST`           | `127.0.0.1` (`0.0.0.0` in Docker) | Listen address.                                                                         |
 | `PORT`           | `8080`                      | Listen port.                                                                                  |
 | `PUBLIC_URL`     |                             | Address you open in the browser, e.g. `https://ai.example.com`. Used for the `/login` link in `subscription_login_required` errors; without it the link uses the address the client called. |
+| `TRUSTED_PROXIES` |                            | Comma-separated addresses or CIDR ranges of reverse proxies whose `X-Forwarded-For`, `-Proto` and `-Host` headers are believed. Empty (default): those headers are ignored. |
 | `DATA_DIR`       | `./data` (`/data` in Docker) | Keys, subscriptions with their saved logins and CLI files (`subscriptions/<id>/`), and the session secret. |
 | `LOG_LEVEL`      | `info`                      | `debug`, `info`, `warn` or `error`.                                                           |
 

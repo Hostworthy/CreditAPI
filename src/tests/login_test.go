@@ -31,6 +31,10 @@ func TestLoginJourney(t *testing.T) {
 	api := "/admin/api/subscriptions/" + sub
 
 	resp, out := s.Do("GET", "/healthz", nil, nil)
+	if _, listed := out["subscriptions"]; listed || out["subscription_count"] != float64(1) {
+		t.Fatalf("anonymous healthz must not list subscriptions: %v", out)
+	}
+	resp, out = s.Do("GET", "/healthz", nil, map[string]string{"Authorization": "Bearer " + support.AdminPassword})
 	subs := out["subscriptions"].([]any)
 	if resp.StatusCode != 200 || out["logins_ok"] != true || len(subs) != 1 || subs[0].(map[string]any)["login"] != "unknown" {
 		t.Fatalf("healthz %d %v", resp.StatusCode, out)
@@ -48,7 +52,7 @@ func TestLoginJourney(t *testing.T) {
 		t.Fatalf("message should name the subscription and link to PUBLIC_URL/login: %v", e["message"])
 	}
 	_, out = s.Do("GET", "/healthz", nil, nil)
-	if out["logins_ok"] != false {
+	if out["logins_ok"] != false || out["logins_needed"] != float64(1) {
 		t.Fatalf("healthz should report the broken login: %v", out)
 	}
 
@@ -113,7 +117,7 @@ func TestLoginJourney(t *testing.T) {
 	if out["state"] != "valid" || out["cached"] != false || out["reply"] == "" {
 		t.Fatalf("forced check: %v", out)
 	}
-	_, out = s.Do("GET", "/healthz", nil, nil)
+	_, out = s.Do("GET", "/healthz", nil, map[string]string{"Authorization": "Bearer " + support.AdminPassword})
 	if out["logins_ok"] != true || out["subscriptions"].([]any)[0].(map[string]any)["login"] != "valid" {
 		t.Fatalf("healthz after login: %v", out)
 	}

@@ -200,19 +200,22 @@ otherwise open `/login` yourself. A few details:
   needs a sign-in, and each subscription's `login` state, so an uptime monitor
   can alert you.
 
-## HTTPS and Reverse Proxy
+## Running Behind a Proxy (Optional)
 
-Put the server behind HTTPS before exposing it to the internet. With Caddy:
+CreditAPI is a plain HTTP server and works on its own, on a laptop or a home
+server. If you put it behind a reverse proxy for HTTPS, such as Nginx or
+Caddy, see [examples/nginx.conf](../examples/nginx.conf). Two Nginx defaults
+need changing: the 1 MB request body limit (photos are larger) and response
+buffering (it holds back streamed answers).
 
-```text
-ai.example.com {
-  reverse_proxy creditapi:8080
-}
-```
-
-The admin cookie is marked `Secure` when requests arrive over HTTPS
-(`X-Forwarded-Proto` is respected). If you can, keep `/admin` and `/login`
-reachable only from your home network or VPN; apps only need `/v1`.
+- Set `PUBLIC_URL` to the address you open in the browser. Login links use it,
+  and an `https://` address marks the admin cookie `Secure`.
+- Forwarding headers (`X-Forwarded-For`, `-Proto`, `-Host`) are ignored unless
+  the request comes from an address in `TRUSTED_PROXIES`, because any client
+  can send them. Set it so the admin sign-in lockout counts real client
+  addresses instead of the proxy's.
+- If you can, keep `/admin` and `/login` reachable only from your home network
+  or VPN; apps only need `/v1`.
 
 ## Updating
 

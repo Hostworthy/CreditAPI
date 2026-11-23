@@ -117,6 +117,7 @@ func (b *Backend) Login(acc *agent.Account) agent.LoginSpec {
 		Token:     ExtractToken,
 		Redact:    func(s string) string { return tokenRe.ReplaceAllStringFunc(s, agent.Hint) },
 		Save:      acc.Tokens.Save,
+		URLHosts:  []string{"claude.ai", "claude.com", "anthropic.com"},
 	}
 }
 

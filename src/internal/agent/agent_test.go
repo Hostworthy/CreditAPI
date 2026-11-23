@@ -566,3 +566,26 @@ func TestReadLineLimit(t *testing.T) {
 		t.Fatal("model name rules")
 	}
 }
+
+func TestLoginURLHostRestriction(t *testing.T) {
+	m := NewLoginManager()
+	ts := NewTokenStore(filepath.Join(t.TempDir(), "tok"), "", nil)
+	spec := codeSpec(t, ts)
+	spec.URLHosts = []string{"example.org"} // the fake prints a claude.ai link
+	st, err := m.Start("sub1", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.CancelAll()
+	deadline := time.Now().Add(5 * time.Second)
+	for st.Error == "" && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		st = m.Status("sub1")
+	}
+	if st.URL != "" || !strings.Contains(st.Error, "claude.ai") {
+		t.Fatalf("link to another host must not be shown: %+v", st)
+	}
+	if !hostAllowed("https://login.claude.ai/x", []string{"claude.ai"}) || hostAllowed("https://claude.ai.evil.example/x", []string{"claude.ai"}) {
+		t.Fatal("host matching")
+	}
+}

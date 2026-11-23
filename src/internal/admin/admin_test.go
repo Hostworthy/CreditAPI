@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -43,10 +45,18 @@ func newServerWith(t *testing.T, scenario string) *httptest.Server {
 
 func newAdmin(t *testing.T, scenario string) (*httptest.Server, *subscriptions.Manager) {
 	t.Helper()
+	return newAdminWith(t, scenario, nil)
+}
+
+func newAdminWith(t *testing.T, scenario string, tweak func(*config.Config)) (*httptest.Server, *subscriptions.Manager) {
+	t.Helper()
 	dir := t.TempDir()
 	t.Setenv(fakeclaude.EnvScenario, scenario)
 	t.Setenv("ADMIN_TEST_TOKEN", "tok")
 	cfg := &config.Config{DataDir: dir, AdminPassword: pw, DefaultModel: "sonnet", Models: []string{"sonnet"}, MaxConcurrent: 1}
+	if tweak != nil {
+		tweak(cfg)
+	}
 	ks, err := keys.Open(filepath.Join(dir, "keys.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -314,5 +324,61 @@ func TestAdminBodyLimit(t *testing.T) {
 	big := map[string]string{"name": strings.Repeat("x", 70<<10)}
 	if code, _ := call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/keys", big, map[string]string{"Authorization": "Bearer " + pw}); code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized body: %d", code)
+	}
+}
+
+func TestSignOutRevokesCopiedCookies(t *testing.T) {
+	srv := newServer(t)
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Jar: jar}
+	call(t, c, "POST", srv.URL+"/admin/api/session", map[string]string{"password": pw}, nil)
+	u, _ := url.Parse(srv.URL)
+	copied := jar.Cookies(u)
+	if len(copied) != 1 || strings.Count(copied[0].Value, ".") != 2 {
+		t.Fatalf("cookie %v", copied)
+	}
+	// A second sign-in gets a different cookie.
+	jar2, _ := cookiejar.New(nil)
+	c2 := &http.Client{Jar: jar2}
+	call(t, c2, "POST", srv.URL+"/admin/api/session", map[string]string{"password": pw}, nil)
+	if jar2.Cookies(u)[0].Value == copied[0].Value {
+		t.Fatal("sessions must be unique")
+	}
+	call(t, c, "DELETE", srv.URL+"/admin/api/session", nil, nil)
+	thief, _ := cookiejar.New(nil)
+	thief.SetCookies(u, copied)
+	if code, _ := call(t, &http.Client{Jar: thief}, "GET", srv.URL+"/admin/api/keys", nil, nil); code != 401 {
+		t.Fatalf("copied cookie still works after sign-out: %d", code)
+	}
+	if code, _ := call(t, c2, "GET", srv.URL+"/admin/api/keys", nil, nil); code != 401 {
+		t.Fatalf("sign-out signs every device out: %d", code)
+	}
+}
+
+func TestLimiterIsBounded(t *testing.T) {
+	l := &limiter{fails: map[string][]time.Time{}}
+	for i := 0; i < maxTracked+50; i++ {
+		l.fail(strconv.Itoa(i))
+	}
+	if len(l.fails) > maxTracked {
+		t.Fatalf("tracked %d addresses", len(l.fails))
+	}
+}
+
+func TestPublicURLMakesCookieSecure(t *testing.T) {
+	srv, _ := newAdminWith(t, "text", func(c *config.Config) { c.PublicURL = "https://ai.example.com" })
+	resp, err := http.Post(srv.URL+"/admin/api/session", "application/json", strings.NewReader(`{"password":"`+pw+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if sc := resp.Header.Get("Set-Cookie"); !strings.Contains(sc, "Secure") {
+		t.Fatalf("cookie should be Secure when PUBLIC_URL is https: %s", sc)
+	}
+	// An Origin matching PUBLIC_URL is same-origin.
+	req, _ := http.NewRequest("POST", srv.URL+"/admin/api/session", strings.NewReader(`{"password":"`+pw+`"}`))
+	req.Header.Set("Origin", "https://ai.example.com")
+	if resp, _ := http.DefaultClient.Do(req); resp.StatusCode != 200 {
+		t.Fatalf("origin from PUBLIC_URL refused: %d", resp.StatusCode)
 	}
 }

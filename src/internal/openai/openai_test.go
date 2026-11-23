@@ -26,6 +26,7 @@ import (
 	"github.com/atb00ker/CreditAPI/src/internal/agent/claude"
 	"github.com/atb00ker/CreditAPI/src/internal/agent/cursor"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/forwarded"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
 	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
 	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
@@ -579,8 +580,12 @@ func TestLoginURL(t *testing.T) {
 	}
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.Header.Set("X-Forwarded-Host", "claude.example.com")
+	if got := h.loginURL(r); got != "http://claude-api:8080/login" {
+		t.Fatalf("forwarding headers must be ignored by default: %q", got)
+	}
+	h.cfg.TrustedProxies, _ = forwarded.Parse("192.0.2.0/24") // httptest's RemoteAddr
 	if got := h.loginURL(r); got != "https://claude.example.com/login" {
-		t.Fatalf("forwarded %q", got)
+		t.Fatalf("forwarded by a trusted proxy %q", got)
 	}
 	h.cfg.PublicURL = "https://ai.example.org"
 	if got := h.loginURL(r); got != "https://ai.example.org/login" {

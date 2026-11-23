@@ -577,14 +577,10 @@ func (h *Handler) loginURL(r *http.Request) string {
 		return h.cfg.PublicURL + "/login"
 	}
 	scheme := "http"
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+	if h.cfg.TrustedProxies.HTTPS(r) {
 		scheme = "https"
 	}
-	host := r.Host
-	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
-		host = strings.TrimSpace(strings.Split(fh, ",")[0])
-	}
-	return scheme + "://" + host + "/login"
+	return scheme + "://" + h.cfg.TrustedProxies.Host(r) + "/login"
 }
 
 func describeError(err error, loginURL string) (status int, typ, code, msg string) {

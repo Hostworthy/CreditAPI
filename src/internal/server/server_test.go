@@ -85,7 +85,9 @@ func TestRunServesAndShutsDown(t *testing.T) {
 	url := "http://" + cfg.Addr() + "/healthz"
 	var resp *http.Response
 	for i := 0; i < 100; i++ {
-		if resp, err = http.Get(url); err == nil {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+cfg.AdminPassword)
+		if resp, err = http.DefaultClient.Do(req); err == nil {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
