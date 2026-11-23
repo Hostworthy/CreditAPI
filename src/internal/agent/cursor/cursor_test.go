@@ -187,13 +187,13 @@ func TestRunStructuredOutput(t *testing.T) {
 	b, acc, _ := newTestBackend(t, fakecursor.ValidKey)
 	var deltas []string
 	res, err := b.Run(context.Background(), acc, agent.RunOptions{
-		Model: "auto", Content: text("banana"),
-		JSONSchema: json.RawMessage(`{"type":"object","properties":{"food":{"type":"string"},"calories":{"type":"number"}}}`),
+		Model: "auto", Content: text("weather in Paris"),
+		JSONSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"},"temp_c":{"type":"number"}}}`),
 	}, agent.Callbacks{Text: func(s string) { deltas = append(deltas, s) }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(res.StructuredOutput) != `{"calories":42,"food":"fake food"}` || len(deltas) != 0 {
+	if string(res.StructuredOutput) != `{"city":"fake city","temp_c":42}` || len(deltas) != 0 {
 		t.Fatalf("structured %s deltas %v", res.StructuredOutput, deltas)
 	}
 }
@@ -220,10 +220,10 @@ func TestRunToolCalls(t *testing.T) {
 	start := time.Now()
 	res, err := b.Run(ctx, acc, agent.RunOptions{
 		Model:   "auto",
-		Content: text("use get_weather_v2 and log_food"),
+		Content: text("use get_weather_v2 and add_task"),
 		Tools: []agent.Tool{
 			{Name: "get_weather_v2", InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`)},
-			{Name: "log_food", InputSchema: json.RawMessage(`{"type":"object","properties":{"grams":{"type":"number"}}}`)},
+			{Name: "add_task", InputSchema: json.RawMessage(`{"type":"object","properties":{"hours":{"type":"number"}}}`)},
 		},
 		ToolNames: map[string]string{"get_weather_v2": "get.weather.v2"},
 	}, agent.Callbacks{ToolStart: func(i int, id, name string) { started = append(started, name) }})
@@ -239,10 +239,10 @@ func TestRunToolCalls(t *testing.T) {
 	if c := res.ToolCalls[0]; c.Name != "get.weather.v2" || c.Arguments != `{"city":"fake city"}` || !strings.HasPrefix(c.ID, "call_") {
 		t.Fatalf("call %+v", c)
 	}
-	if c := res.ToolCalls[1]; c.Name != "log_food" || c.Arguments != `{"grams":42}` {
+	if c := res.ToolCalls[1]; c.Name != "add_task" || c.Arguments != `{"hours":42}` {
 		t.Fatalf("call %+v", c)
 	}
-	if len(started) != 2 || res.Text != "Calling get_weather_v2, log_food." {
+	if len(started) != 2 || res.Text != "Calling get_weather_v2, add_task." {
 		t.Fatalf("started %v text %q", started, res.Text)
 	}
 	rec := readRecord(t, record)

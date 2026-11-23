@@ -19,15 +19,15 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "I had oats for breakfast"
+        "content": "My favourite colour is green"
       },
       {
         "role": "assistant",
-        "content": "Logged oats."
+        "content": "Noted."
       },
       {
         "role": "user",
-        "content": "[fake:echo-input] and a banana"
+        "content": "[fake:echo-input] and my favourite number is 7"
       }
     ]
   }
@@ -40,8 +40,8 @@ assert {
 tests {
   const text = res.body.choices[0].message.content;
   test("earlier turns are sent as a transcript", function () {
-    expect(text).to.contain("<user>\nI had oats for breakfast\n</user>");
-    expect(text).to.contain("<assistant>\nLogged oats.\n</assistant>");
+    expect(text).to.contain("<user>\nMy favourite colour is green\n</user>");
+    expect(text).to.contain("<assistant>\nNoted.\n</assistant>");
     expect(text).to.contain("Write the assistant's reply to the last user message.");
   });
 }

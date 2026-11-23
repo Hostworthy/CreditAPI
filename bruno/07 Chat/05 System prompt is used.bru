@@ -19,7 +19,7 @@ body:json {
     "messages": [
       {
         "role": "system",
-        "content": "You are a nutrition assistant."
+        "content": "You are a concise assistant."
       },
       {
         "role": "user",
@@ -35,6 +35,6 @@ assert {
 
 tests {
   test("Claude received the client's system prompt", function () {
-    expect(res.body.choices[0].message.content).to.equal("You are a nutrition assistant.");
+    expect(res.body.choices[0].message.content).to.equal("You are a concise assistant.");
   });
 }

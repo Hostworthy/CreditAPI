@@ -27,9 +27,9 @@ script:pre-request {
   const assistant = JSON.parse(bru.getVar("toolMessage"));
   req.setBody({
     model: "sonnet",
-    tools: [{ type: "function", function: { name: "log_food", parameters: { type: "object", properties: {} } } }],
+    tools: [{ type: "function", function: { name: "add_task", parameters: { type: "object", properties: {} } } }],
     messages: [
-      { role: "user", content: "I had 2 boiled eggs for breakfast, please log them." },
+      { role: "user", content: "Add a task to renew my passport, please." },
       assistant,
       { role: "tool", tool_call_id: assistant.tool_calls[0].id, content: JSON.stringify({ ok: true, entry_id: 7 }) },
     ],

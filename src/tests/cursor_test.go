@@ -27,10 +27,10 @@ func TestCursorChat(t *testing.T) {
 	s, key := cursorOnly(t)
 	resp, out := s.Chat(key, map[string]any{"model": "gpt-4o", "messages": []any{
 		map[string]any{"role": "system", "content": "Be brief."},
-		map[string]any{"role": "user", "content": "How many calories in an apple?"},
+		map[string]any{"role": "user", "content": "What is the capital of France?"},
 	}})
 	msg, finish := firstChoice(t, out)
-	if resp.StatusCode != 200 || msg["content"] != "Fake reply to: How many calories in an apple?" || finish != "stop" {
+	if resp.StatusCode != 200 || msg["content"] != "Fake reply to: What is the capital of France?" || finish != "stop" {
 		t.Fatalf("%d %v", resp.StatusCode, out)
 	}
 	// The alias points at a Claude model, so Cursor uses its default model;
@@ -84,19 +84,19 @@ func TestCursorStopSequence(t *testing.T) {
 func TestCursorImages(t *testing.T) {
 	s, key := cursorOnly(t)
 	_, out := s.Chat(key, map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{
-		map[string]any{"type": "text", "text": "What is on this plate?"},
+		map[string]any{"type": "text", "text": "What is in this picture?"},
 		map[string]any{"type": "image_url", "image_url": map[string]any{"url": support.PNGDataURL(t, 40, 30)}},
 	}}}})
-	if got := support.Content(out); got != "I see 1 image(s): image/png 40x30. Fake reply to: What is on this plate?" {
+	if got := support.Content(out); got != "I see 1 image(s): image/png 40x30. Fake reply to: What is in this picture?" {
 		t.Fatalf("reply %q", got)
 	}
 }
 
 func TestCursorToolRoundTrip(t *testing.T) {
 	s, key := cursorOnly(t)
-	tools := []any{logFood, getSummary}
+	tools := []any{addTask, getAgenda}
 	start := time.Now()
-	_, out := s.Chat(key, map[string]any{"tools": tools, "messages": user("log 2 eggs for breakfast")})
+	_, out := s.Chat(key, map[string]any{"tools": tools, "messages": user("add a task to renew my passport")})
 	if time.Since(start) > 10*time.Second {
 		t.Fatal("tool call was not returned promptly")
 	}
@@ -111,12 +111,12 @@ func TestCursorToolRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(fn["arguments"].(string)), &args); err != nil {
 		t.Fatal(err)
 	}
-	if fn["name"] != "log_food" || args["meal_type"] != "breakfast" || !strings.HasPrefix(call["id"].(string), "call_") {
+	if fn["name"] != "add_task" || args["priority"] != "low" || !strings.HasPrefix(call["id"].(string), "call_") {
 		t.Fatalf("call %v", call)
 	}
 
 	_, out = s.Chat(key, map[string]any{"tools": tools, "messages": []any{
-		map[string]any{"role": "user", "content": "log 2 eggs for breakfast"},
+		map[string]any{"role": "user", "content": "add a task to renew my passport"},
 		map[string]any{"role": "assistant", "content": nil, "tool_calls": calls},
 		map[string]any{"role": "tool", "tool_call_id": call["id"], "content": `{"ok":true}`},
 	}})
@@ -128,13 +128,13 @@ func TestCursorToolRoundTrip(t *testing.T) {
 
 func TestCursorStructuredOutput(t *testing.T) {
 	s, key := cursorOnly(t)
-	_, out := s.Chat(key, map[string]any{"messages": user("banana"), "response_format": map[string]any{
-		"type": "json_schema", "json_schema": map[string]any{"name": "food", "schema": map[string]any{
-			"type": "object", "properties": map[string]any{"food": map[string]any{"type": "string"}, "kcal": map[string]any{"type": "integer"}},
+	_, out := s.Chat(key, map[string]any{"messages": user("read this receipt"), "response_format": map[string]any{
+		"type": "json_schema", "json_schema": map[string]any{"name": "receipt", "schema": map[string]any{
+			"type": "object", "properties": map[string]any{"merchant": map[string]any{"type": "string"}, "items": map[string]any{"type": "integer"}},
 		}},
 	}})
 	var v map[string]any
-	if err := json.Unmarshal([]byte(support.Content(out)), &v); err != nil || v["food"] != "fake food" || v["kcal"] != float64(42) {
+	if err := json.Unmarshal([]byte(support.Content(out)), &v); err != nil || v["merchant"] != "fake merchant" || v["items"] != float64(42) {
 		t.Fatalf("content %q", support.Content(out))
 	}
 	_, out = s.Chat(key, map[string]any{"messages": user("hi"), "response_format": map[string]any{"type": "json_object"}})

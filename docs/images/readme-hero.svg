@@ -14,7 +14,7 @@
     .label { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #8a847c; }
   </style>
 
-  <!-- Phone with a food photo and chat bubbles -->
+  <!-- Phone with a photo and chat bubbles -->
   <rect class="soft" x="24" y="22" width="86" height="148" rx="16"/>
   <rect class="line" x="24" y="22" width="86" height="148" rx="16"/>
   <line class="line" x1="56" y1="34" x2="78" y2="34"/>

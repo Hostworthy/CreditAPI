@@ -20,27 +20,27 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "log_food",
-          "description": "Log a food entry to the diary",
+          "name": "add_task",
+          "description": "Add a task to the to-do list",
           "parameters": {
             "type": "object",
             "required": [
-              "food_name"
+              "title"
             ],
             "properties": {
-              "food_name": {
+              "title": {
                 "type": "string"
               },
-              "quantity": {
+              "hours": {
                 "type": "number"
               },
-              "meal_type": {
+              "priority": {
                 "type": "string",
                 "enum": [
-                  "breakfast",
-                  "lunch",
-                  "dinner",
-                  "snacks"
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
                 ]
               }
             }
@@ -50,8 +50,8 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "get_daily_summary",
-          "description": "Calories and macros for a day",
+          "name": "get_agenda",
+          "description": "Calendar events for a day",
           "parameters": {
             "type": "object",
             "properties": {
@@ -67,13 +67,13 @@ body:json {
     "tool_choice": {
       "type": "function",
       "function": {
-        "name": "get_daily_summary"
+        "name": "get_agenda"
       }
     },
     "messages": [
       {
         "role": "user",
-        "content": "how am I doing today?"
+        "content": "what is on my calendar today?"
       }
     ]
   }
@@ -86,7 +86,7 @@ assert {
 tests {
   test("calls the named tool", function () {
     const fn = res.body.choices[0].message.tool_calls[0].function;
-    expect(fn.name).to.equal("get_daily_summary");
+    expect(fn.name).to.equal("get_agenda");
     expect(JSON.parse(fn.arguments)).to.deep.equal({ date: "2026-01-01" });
   });
 }

@@ -108,7 +108,7 @@ All settings are environment variables, documented in
 ### Environment Loading
 
 The server loads `.env` from the working directory (variables already set in
-the shell win). Two overrides, the same as in goauth:
+the shell win). Two overrides:
 
 - **Alternate entry:** `export ENV_CREDITAPI=/path/to/file.env` in the shell.
 - **Chaining:** `ENV_PATH=secrets.env` inside an env file loads another file

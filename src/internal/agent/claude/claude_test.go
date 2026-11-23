@@ -174,12 +174,12 @@ func TestRunStructuredOutput(t *testing.T) {
 	b, acc, record := newTestBackend(t, "schema", "tok")
 	var deltas []string
 	res, err := b.Run(context.Background(), acc, agent.RunOptions{
-		Model: "haiku", JSONSchema: json.RawMessage(`{"type":"object"}`), Content: text("banana"),
+		Model: "haiku", JSONSchema: json.RawMessage(`{"type":"object"}`), Content: text("weather in Paris"),
 	}, agent.Callbacks{Text: func(s string) { deltas = append(deltas, s) }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(res.StructuredOutput) != `{"calories":105,"food":"banana"}` {
+	if string(res.StructuredOutput) != `{"city":"Paris","temp_c":21}` {
 		t.Fatalf("structured %s", res.StructuredOutput)
 	}
 	if len(deltas) != 0 {

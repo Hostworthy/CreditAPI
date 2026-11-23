@@ -21,27 +21,27 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "log_food",
-          "description": "Log a food entry to the diary",
+          "name": "add_task",
+          "description": "Add a task to the to-do list",
           "parameters": {
             "type": "object",
             "required": [
-              "food_name"
+              "title"
             ],
             "properties": {
-              "food_name": {
+              "title": {
                 "type": "string"
               },
-              "quantity": {
+              "hours": {
                 "type": "number"
               },
-              "meal_type": {
+              "priority": {
                 "type": "string",
                 "enum": [
-                  "breakfast",
-                  "lunch",
-                  "dinner",
-                  "snacks"
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
                 ]
               }
             }
@@ -51,8 +51,8 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "get_daily_summary",
-          "description": "Calories and macros for a day",
+          "name": "get_agenda",
+          "description": "Calendar events for a day",
           "parameters": {
             "type": "object",
             "properties": {
@@ -68,7 +68,7 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "log a slice of toast"
+        "content": "remind me to water the plants"
       }
     ]
   }
@@ -90,9 +90,9 @@ tests {
   test("tool call streamed in OpenAI delta format", function () {
     expect(done).to.equal(true);
     expect(deltas[0].id).to.match(/^call_/);
-    expect(deltas[0].function.name).to.equal("log_food");
+    expect(deltas[0].function.name).to.equal("add_task");
     const args = deltas.map((d) => d.function.arguments).join("");
-    expect(JSON.parse(args).food_name).to.equal("fake food name");
+    expect(JSON.parse(args).title).to.equal("fake title");
   });
   test("finish_reason is tool_calls", function () {
     const finish = chunks.flatMap((c) => c.choices).map((c) => c.finish_reason).filter(Boolean);

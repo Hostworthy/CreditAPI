@@ -301,10 +301,10 @@ func runScripted(scenario string, inv *invocation) int {
 		messageEnd("tool_use", 10, 20)
 		waitForKill(inv, strings.TrimPrefix(name, "mcp__oai__"))
 	case "schema":
-		toolUseBlock(0, "toolu_s", "StructuredOutput", `{"food":"banana","calories":105}`)
+		toolUseBlock(0, "toolu_s", "StructuredOutput", `{"city":"Paris","temp_c":21}`)
 		messageEnd("tool_use", 10, 9)
-		result(map[string]any{"result": `{"food":"banana","calories":105}`, "stop_reason": "tool_use", "usage": usage(20, 9),
-			"structured_output": map[string]any{"food": "banana", "calories": 105}})
+		result(map[string]any{"result": `{"city":"Paris","temp_c":21}`, "stop_reason": "tool_use", "usage": usage(20, 9),
+			"structured_output": map[string]any{"city": "Paris", "temp_c": 21}})
 	case "auth":
 		authFailure("Failed to authenticate. API Error: 401 OAuth access token is invalid.", 401)
 	case "crash":

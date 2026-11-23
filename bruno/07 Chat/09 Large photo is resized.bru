@@ -1,5 +1,5 @@
 meta {
-  name: Food photo is resized
+  name: Large photo is resized
   type: http
   seq: 9
 }
@@ -23,7 +23,7 @@ body:json {
         "content": [
           {
             "type": "text",
-            "text": "What is on my plate?"
+            "text": "What is in this picture?"
           },
           {
             "type": "image_url",
@@ -43,6 +43,6 @@ assert {
 
 tests {
   test("a 2000x400 photo reaches Claude as a 1568px JPEG", function () {
-    expect(res.body.choices[0].message.content).to.equal("I see 1 image(s): image/jpeg 1568x313. Fake reply to: What is on my plate?");
+    expect(res.body.choices[0].message.content).to.equal("I see 1 image(s): image/jpeg 1568x313. Fake reply to: What is in this picture?");
   });
 }

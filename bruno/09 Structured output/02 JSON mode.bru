@@ -20,7 +20,7 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "apple"
+        "content": "hello"
       }
     ],
     "response_format": {
@@ -35,6 +35,6 @@ assert {
 
 tests {
   test("code fences are stripped", function () {
-    expect(res.body.choices[0].message.content).to.equal('{"fake":true,"reply":"apple"}');
+    expect(res.body.choices[0].message.content).to.equal('{"fake":true,"reply":"hello"}');
   });
 }

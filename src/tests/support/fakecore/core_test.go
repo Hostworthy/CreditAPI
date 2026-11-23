@@ -17,23 +17,23 @@ func TestSampleFromSchema(t *testing.T) {
 		"type": "object",
 		"properties": {
 			"name": {"type": "string"},
-			"meal_type": {"type": "string", "enum": ["lunch", "dinner"]},
-			"kind": {"const": "food"},
+			"size": {"type": "string", "enum": ["small", "large"]},
+			"kind": {"const": "item"},
 			"date": {"type": "string", "format": "date"},
 			"at": {"type": "string", "format": "date-time"},
 			"email": {"type": "string", "format": "email"},
-			"grams": {"type": "number"},
+			"meters": {"type": "number"},
 			"count": {"type": "integer"},
 			"ok": {"type": "boolean"},
 			"note": {"type": ["null", "string"]},
 			"tags": {"type": "array", "items": {"type": "string"}},
-			"macro": {"properties": {"protein": {"type": "number"}}},
+			"nested": {"properties": {"depth": {"type": "number"}}},
 			"either": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
 			"nothing": {"type": "null"}
 		}
 	}`), &schema)
 	got, _ := json.Marshal(SampleFromSchema(schema, "root"))
-	want := `{"at":"2026-01-01T12:00:00Z","count":42,"date":"2026-01-01","either":42,"email":"fake@example.com","grams":42,"kind":"food","macro":{"protein":42},"meal_type":"lunch","name":"fake name","note":"fake note","nothing":null,"ok":true,"tags":["fake tags"]}`
+	want := `{"at":"2026-01-01T12:00:00Z","count":42,"date":"2026-01-01","either":42,"email":"fake@example.com","kind":"item","meters":42,"name":"fake name","nested":{"depth":42},"note":"fake note","nothing":null,"ok":true,"size":"small","tags":["fake tags"]}`
 	if string(got) != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
@@ -66,7 +66,7 @@ func TestLastUserLine(t *testing.T) {
 
 func TestToolResultHelpers(t *testing.T) {
 	transcript := "Earlier calls appear as <tool_call> and <tool_result> elements.\n\n<user>\nlog\n</user>\n\n" +
-		"<tool_result tool_call_id=\"c1\" name=\"log_food\">\n{\"ok\":true}\n</tool_result>\n\nContinue."
+		"<tool_result tool_call_id=\"c1\" name=\"add_task\">\n{\"ok\":true}\n</tool_result>\n\nContinue."
 	if !EndsWithToolResults(transcript) {
 		t.Fatal("should end with tool results")
 	}
@@ -118,8 +118,8 @@ func TestWhoami(t *testing.T) {
 }
 
 func TestChooseTools(t *testing.T) {
-	tools := []Tool{{Name: "get_weather"}, {Name: "log_food"}}
-	if got := ChooseTools(tools, "please log_food"); len(got) != 1 || got[0].Name != "log_food" {
+	tools := []Tool{{Name: "get_weather"}, {Name: "add_task"}}
+	if got := ChooseTools(tools, "please add_task"); len(got) != 1 || got[0].Name != "add_task" {
 		t.Fatalf("%v", got)
 	}
 	if got := ChooseTools(tools, "anything"); len(got) != 1 || got[0].Name != "get_weather" {

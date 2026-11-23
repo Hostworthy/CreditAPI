@@ -142,7 +142,7 @@ from openai import OpenAI
 client = OpenAI(base_url="https://your-server/v1", api_key="sk-credit-...")
 reply = client.chat.completions.create(
     model="sonnet",
-    messages=[{"role": "user", "content": "How much protein is in 200 g of Greek yogurt?"}],
+    messages=[{"role": "user", "content": "Summarize the plot of Hamlet in two sentences."}],
 )
 print(reply.choices[0].message.content)
 ```

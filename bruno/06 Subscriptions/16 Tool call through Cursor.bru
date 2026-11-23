@@ -21,11 +21,11 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "log_food",
+          "name": "add_task",
           "parameters": {
             "type": "object",
             "properties": {
-              "food_name": {
+              "title": {
                 "type": "string"
               }
             }
@@ -36,7 +36,7 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "log a banana"
+        "content": "add a task to buy stamps"
       }
     ]
   }
@@ -50,7 +50,7 @@ tests {
   const choice = res.body.choices[0];
   test("returned as OpenAI tool_calls", function () {
     expect(choice.finish_reason).to.equal("tool_calls");
-    expect(choice.message.tool_calls[0].function.name).to.equal("log_food");
-    expect(JSON.parse(choice.message.tool_calls[0].function.arguments)).to.deep.equal({ food_name: "fake food name" });
+    expect(choice.message.tool_calls[0].function.name).to.equal("add_task");
+    expect(JSON.parse(choice.message.tool_calls[0].function.arguments)).to.deep.equal({ title: "fake title" });
   });
 }

@@ -20,27 +20,27 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "log_food",
-          "description": "Log a food entry to the diary",
+          "name": "add_task",
+          "description": "Add a task to the to-do list",
           "parameters": {
             "type": "object",
             "required": [
-              "food_name"
+              "title"
             ],
             "properties": {
-              "food_name": {
+              "title": {
                 "type": "string"
               },
-              "quantity": {
+              "hours": {
                 "type": "number"
               },
-              "meal_type": {
+              "priority": {
                 "type": "string",
                 "enum": [
-                  "breakfast",
-                  "lunch",
-                  "dinner",
-                  "snacks"
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
                 ]
               }
             }
@@ -50,8 +50,8 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "get_daily_summary",
-          "description": "Calories and macros for a day",
+          "name": "get_agenda",
+          "description": "Calendar events for a day",
           "parameters": {
             "type": "object",
             "properties": {
@@ -67,7 +67,7 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "use log_food and get_daily_summary"
+        "content": "use add_task and get_agenda"
       }
     ]
   }
@@ -79,6 +79,6 @@ assert {
 
 tests {
   test("two calls in one reply", function () {
-    expect(res.body.choices[0].message.tool_calls.map((c) => c.function.name)).to.deep.equal(["log_food", "get_daily_summary"]);
+    expect(res.body.choices[0].message.tool_calls.map((c) => c.function.name)).to.deep.equal(["add_task", "get_agenda"]);
   });
 }

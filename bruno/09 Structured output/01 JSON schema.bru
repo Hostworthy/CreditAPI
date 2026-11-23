@@ -20,30 +20,30 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "Read this nutrition label"
+        "content": "Read this receipt"
       }
     ],
     "response_format": {
       "type": "json_schema",
       "json_schema": {
-        "name": "label",
+        "name": "receipt",
         "strict": true,
         "schema": {
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "calories",
-            "protein_g",
-            "serving"
+            "total",
+            "tax",
+            "merchant"
           ],
           "properties": {
-            "calories": {
+            "total": {
               "type": "number"
             },
-            "protein_g": {
+            "tax": {
               "type": "number"
             },
-            "serving": {
+            "merchant": {
               "type": "string"
             }
           }
@@ -60,6 +60,6 @@ assert {
 tests {
   test("content is JSON matching the schema", function () {
     const v = JSON.parse(res.body.choices[0].message.content);
-    expect(v).to.deep.equal({ calories: 42, protein_g: 42, serving: "fake serving" });
+    expect(v).to.deep.equal({ total: 42, tax: 42, merchant: "fake merchant" });
   });
 }

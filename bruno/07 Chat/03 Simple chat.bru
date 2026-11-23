@@ -20,7 +20,7 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "How many calories are in an apple?"
+        "content": "What is the capital of France?"
       }
     ]
   }
@@ -34,7 +34,7 @@ tests {
   const choice = res.body.choices[0];
   test("assistant reply", function () {
     expect(choice.message.role).to.equal("assistant");
-    expect(choice.message.content).to.equal("Fake reply to: How many calories are in an apple?");
+    expect(choice.message.content).to.equal("Fake reply to: What is the capital of France?");
     expect(choice.finish_reason).to.equal("stop");
   });
   test("OpenAI envelope", function () {

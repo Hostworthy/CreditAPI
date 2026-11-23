@@ -21,27 +21,27 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "log_food",
-          "description": "Log a food entry to the diary",
+          "name": "add_task",
+          "description": "Add a task to the to-do list",
           "parameters": {
             "type": "object",
             "required": [
-              "food_name"
+              "title"
             ],
             "properties": {
-              "food_name": {
+              "title": {
                 "type": "string"
               },
-              "quantity": {
+              "hours": {
                 "type": "number"
               },
-              "meal_type": {
+              "priority": {
                 "type": "string",
                 "enum": [
-                  "breakfast",
-                  "lunch",
-                  "dinner",
-                  "snacks"
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
                 ]
               }
             }
@@ -51,8 +51,8 @@ body:json {
       {
         "type": "function",
         "function": {
-          "name": "get_daily_summary",
-          "description": "Calories and macros for a day",
+          "name": "get_agenda",
+          "description": "Calendar events for a day",
           "parameters": {
             "type": "object",
             "properties": {
@@ -68,11 +68,11 @@ body:json {
     "messages": [
       {
         "role": "system",
-        "content": "You are a nutrition assistant. Use tools to log food."
+        "content": "You are a planning assistant. Use tools to manage tasks."
       },
       {
         "role": "user",
-        "content": "I had 2 boiled eggs for breakfast, please log them."
+        "content": "Add a task to renew my passport, please."
       }
     ]
   }
@@ -93,10 +93,10 @@ tests {
     expect(choice.finish_reason).to.equal("tool_calls");
     expect(choice.message.tool_calls).to.have.length(1);
   });
-  test("calls log_food with schema-shaped arguments", function () {
+  test("calls add_task with schema-shaped arguments", function () {
     expect(call.type).to.equal("function");
     expect(call.id).to.match(/^call_/);
-    expect(call.function.name).to.equal("log_food");
-    expect(JSON.parse(call.function.arguments)).to.deep.equal({ food_name: "fake food name", quantity: 42, meal_type: "breakfast" });
+    expect(call.function.name).to.equal("add_task");
+    expect(JSON.parse(call.function.arguments)).to.deep.equal({ title: "fake title", hours: 42, priority: "low" });
   });
 }
