@@ -1,5 +1,5 @@
 // Package support holds test-only helpers: a full server running on the fake
-// Claude CLI, HTTP helpers and image fixtures.
+// Claude and Cursor CLIs, HTTP helpers and image fixtures.
 package support
 
 import (
@@ -24,6 +24,7 @@ import (
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
 	"github.com/atb00ker/CreditAPI/src/internal/server"
 	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakecursor"
 )
 
 // AdminPassword is the admin password of every test server.
@@ -31,7 +32,11 @@ const AdminPassword = "test-admin-password"
 
 // Options customizes a test server. Zero values mean sensible defaults.
 type Options struct {
+	// EnvToken and CursorKey set CLAUDE_CODE_OAUTH_TOKEN and CURSOR_API_KEY.
+	// A first start always creates a "Claude" subscription; CursorKey also
+	// creates a "Cursor" one.
 	EnvToken          string
+	CursorKey         string
 	MaxConcurrent     int
 	QueueTimeout      time.Duration
 	StrictModels      bool
@@ -41,32 +46,32 @@ type Options struct {
 	MaxBodyBytes      int64
 }
 
-// TestServer is a running server whose claude CLI is the fake (auto mode).
+// TestServer is a running server whose claude and cursor-agent CLIs are the
+// fakes (auto mode).
 type TestServer struct {
 	*httptest.Server
 	App *server.Server
 	t   *testing.T
 }
 
-// NewServer starts a server for t. The test binary must call
-// fakeclaude.MaybeRun in TestMain, because it re-executes itself as the CLI.
+// NewServer starts a server for t. The test binary must call fakes.MaybeRun
+// in TestMain, because it re-executes itself as both CLIs.
 func NewServer(t *testing.T, opts Options) *TestServer {
 	t.Helper()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(fakeclaude.EnvScenario, "auto")
+	dir := t.TempDir()
+	claudeBin, cursorBin := FakeBins(t, filepath.Join(dir, "bin"))
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", opts.EnvToken)
+	t.Setenv("CURSOR_API_KEY", opts.CursorKey)
 
 	logger, _ := logging.NewWithWriter(io.Discard, "error")
 	prev := slog.Default()
 	slog.SetDefault(logger)
 
-	dir := t.TempDir()
 	cfg := &config.Config{
-		Host: "127.0.0.1", Port: "0", DataDir: dir, AdminPassword: AdminPassword,
-		PublicURL: opts.PublicURL, ClaudeBin: exe, ClaudeHome: filepath.Join(dir, "claude-home"),
-		EnvToken: opts.EnvToken, DefaultModel: "sonnet", Models: []string{"opus", "sonnet", "haiku"},
+		Host: "127.0.0.1", Port: "0", DataDir: filepath.Join(dir, "data"), AdminPassword: AdminPassword,
+		PublicURL: opts.PublicURL, ClaudeBin: claudeBin, CursorBin: cursorBin,
+		DefaultModel: "sonnet", Models: []string{"opus", "sonnet", "haiku"},
+		CursorDefaultModel: "auto", CursorModels: []string{"auto", "gpt-5", "sonnet-4"},
 		ModelAliases: map[string]string{"gpt-4o": "opus"}, StrictModels: opts.StrictModels,
 		DefaultSystemPrompt: "You are a helpful assistant.", MaxConcurrent: or(opts.MaxConcurrent, 2),
 		QueueTimeout: orDur(opts.QueueTimeout, 5*time.Second), RequestTimeout: 30 * time.Second,
@@ -84,6 +89,28 @@ func NewServer(t *testing.T, opts Options) *TestServer {
 		slog.SetDefault(prev)
 	})
 	return &TestServer{Server: ts, App: app, t: t}
+}
+
+// FakeBins makes `claude` and `cursor-agent` symlinks to the test binary in
+// dir and switches both fakes to auto mode.
+func FakeBins(t *testing.T, dir string) (claudeBin, cursorBin string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeBin, cursorBin = filepath.Join(dir, "claude"), filepath.Join(dir, "cursor-agent")
+	for _, link := range []string{claudeBin, cursorBin} {
+		if err := os.Symlink(exe, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv(fakeclaude.EnvScenario, "auto")
+	t.Setenv(fakecursor.EnvMode, "auto")
+	return claudeBin, cursorBin
 }
 
 func or(v, def int) int {
@@ -145,14 +172,27 @@ func (s *TestServer) Admin(method, path string, body any) (int, map[string]any) 
 	return resp.StatusCode, out
 }
 
-// CreateKey creates a virtual API key and returns its secret.
+// CreateKey creates a virtual API key with access to every subscription
+// and returns its secret.
 func (s *TestServer) CreateKey(name string) string {
 	s.t.Helper()
-	code, out := s.Admin("POST", "/admin/api/keys", map[string]any{"name": name})
+	_, secret := s.CreateKeyFor(name, nil)
+	return secret
+}
+
+// CreateKeyFor creates a virtual API key that may use the given subscription
+// IDs (nil means all of them) and returns its ID and secret.
+func (s *TestServer) CreateKeyFor(name string, subs []string) (id, secret string) {
+	s.t.Helper()
+	body := map[string]any{"name": name}
+	if subs != nil {
+		body["subscriptions"] = subs
+	}
+	code, out := s.Admin("POST", "/admin/api/keys", body)
 	if code != http.StatusCreated {
 		s.t.Fatalf("create key: %d %v", code, out)
 	}
-	return out["secret"].(string)
+	return out["key"].(map[string]any)["id"].(string), out["secret"].(string)
 }
 
 // Chat posts to /v1/chat/completions with key.
@@ -196,14 +236,64 @@ func (s *TestServer) Stream(key string, body map[string]any) (*http.Response, []
 	return resp, events, done
 }
 
-// WaitLogin polls the login state until it equals want.
-func (s *TestServer) WaitLogin(want string) map[string]any {
+// Ask sends one user message with key and returns the status and reply.
+func (s *TestServer) Ask(key, model, text string) (int, string, map[string]any) {
+	s.t.Helper()
+	resp, out := s.Chat(key, map[string]any{"model": model, "messages": []map[string]any{{"role": "user", "content": text}}})
+	return resp.StatusCode, Content(out), out
+}
+
+// Subscriptions lists the subscriptions through the admin API.
+func (s *TestServer) Subscriptions() []map[string]any {
+	s.t.Helper()
+	code, out := s.Admin("GET", "/admin/api/subscriptions", nil)
+	if code != http.StatusOK {
+		s.t.Fatalf("list subscriptions: %d %v", code, out)
+	}
+	var list []map[string]any
+	for _, v := range out["subscriptions"].([]any) {
+		list = append(list, v.(map[string]any))
+	}
+	return list
+}
+
+// SubscriptionID returns the ID of the subscription with the given name.
+func (s *TestServer) SubscriptionID(name string) string {
+	s.t.Helper()
+	for _, sub := range s.Subscriptions() {
+		if sub["name"] == name {
+			return sub["id"].(string)
+		}
+	}
+	s.t.Fatalf("no subscription named %q", name)
+	return ""
+}
+
+// ClaudeID is the ID of the "Claude" subscription created on first start.
+func (s *TestServer) ClaudeID() string { return s.SubscriptionID("Claude") }
+
+// CreateSubscription adds a subscription that the given key IDs may use.
+func (s *TestServer) CreateSubscription(name, provider string, keyIDs ...string) string {
+	s.t.Helper()
+	if keyIDs == nil {
+		keyIDs = []string{}
+	}
+	code, out := s.Admin("POST", "/admin/api/subscriptions", map[string]any{"name": name, "provider": provider, "keys": keyIDs})
+	if code != http.StatusCreated {
+		s.t.Fatalf("create subscription: %d %v", code, out)
+	}
+	return out["id"].(string)
+}
+
+// WaitLogin polls a subscription's login state until it equals want and
+// returns the subscription.
+func (s *TestServer) WaitLogin(subID, want string) map[string]any {
 	s.t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	var st map[string]any
 	for time.Now().Before(deadline) {
-		_, out := s.Admin("GET", "/admin/api/claude", nil)
-		st = out["login"].(map[string]any)
+		_, out := s.Admin("GET", "/admin/api/subscriptions/"+subID, nil)
+		st, _ = out["login"].(map[string]any)
 		if st["state"] == want {
 			return out
 		}
@@ -213,16 +303,29 @@ func (s *TestServer) WaitLogin(want string) map[string]any {
 	return nil
 }
 
-// SignIn runs the whole fake Claude sign-in through the admin API.
-func (s *TestServer) SignIn() {
+// SignIn runs the whole fake Claude sign-in for the "Claude" subscription.
+func (s *TestServer) SignIn() { s.SignInClaude(s.ClaudeID()) }
+
+// SignInClaude runs the fake Claude sign-in (URL, code, token) for subID.
+func (s *TestServer) SignInClaude(subID string) {
 	s.t.Helper()
-	if code, out := s.Admin("POST", "/admin/api/claude/login", nil); code != 200 || out["state"] != "waiting_for_code" {
+	base := "/admin/api/subscriptions/" + subID + "/login"
+	if code, out := s.Admin("POST", base, nil); code != 200 || out["state"] != "waiting_for_code" {
 		s.t.Fatalf("start login: %d %v", code, out)
 	}
-	if code, out := s.Admin("POST", "/admin/api/claude/login/code", map[string]any{"code": fakeclaude.CodePrefix + "-test#state"}); code != 200 {
+	if code, out := s.Admin("POST", base+"/code", map[string]any{"code": fakeclaude.CodePrefix + "-test#state"}); code != 200 {
 		s.t.Fatalf("submit code: %d %v", code, out)
 	}
-	s.WaitLogin("success")
+	s.WaitLogin(subID, "success")
+}
+
+// SignInCursor runs the fake Cursor sign-in (URL, browser approval) for subID.
+func (s *TestServer) SignInCursor(subID string) {
+	s.t.Helper()
+	if code, out := s.Admin("POST", "/admin/api/subscriptions/"+subID+"/login", nil); code != 200 || out["state"] != "waiting_for_browser" {
+		s.t.Fatalf("start login: %d %v", code, out)
+	}
+	s.WaitLogin(subID, "success")
 }
 
 // Content extracts choices[0].message.content from a chat response.

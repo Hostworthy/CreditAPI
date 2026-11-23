@@ -21,11 +21,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakecore"
 )
 
 // Environment variables understood by the fake.
@@ -93,11 +94,6 @@ type block struct {
 	Source *imageSource `json:"source"`
 }
 
-type bridgeTool struct {
-	Name        string         `json:"name"`
-	InputSchema map[string]any `json:"inputSchema"`
-}
-
 type invocation struct {
 	args      []string
 	stdin     []byte
@@ -106,7 +102,7 @@ type invocation struct {
 	schema    map[string]any
 	mcpConfig []byte
 	bridgeURL string
-	tools     []bridgeTool
+	tools     []fakecore.Tool
 	content   []block
 	text      string
 	maxTokens int
@@ -172,7 +168,7 @@ func parseInvocation(args []string, stdin io.Reader) (*invocation, error) {
 		inv.bridgeURL = cfg.MCPServers["oai"].URL
 	}
 	if inv.bridgeURL != "" {
-		inv.tools = listBridgeTools(inv.bridgeURL)
+		inv.tools = fakecore.ListTools(inv.bridgeURL)
 	}
 	inv.maxTokens, _ = strconv.Atoi(os.Getenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS"))
 	return inv, nil
@@ -194,31 +190,6 @@ func (inv *invocation) record() {
 	}
 	b, _ := json.Marshal(rec)
 	_ = os.WriteFile(path, b, 0o600)
-}
-
-// --- MCP bridge client -------------------------------------------------------
-
-func rpc(url, method string, params any) json.RawMessage {
-	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Result json.RawMessage `json:"result"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	return out.Result
-}
-
-func listBridgeTools(url string) []bridgeTool {
-	rpc(url, "initialize", map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "fakeclaude"}})
-	var tl struct {
-		Tools []bridgeTool `json:"tools"`
-	}
-	_ = json.Unmarshal(rpc(url, "tools/list", map[string]any{}), &tl)
-	return tl.Tools
 }
 
 // --- stream-json output -------------------------------------------------------
@@ -293,7 +264,7 @@ func result(fields map[string]any) {
 // (which never answers) and waits to be stopped by the server.
 func waitForKill(inv *invocation, tool string) {
 	if inv.bridgeURL != "" {
-		rpc(inv.bridgeURL, "tools/call", map[string]any{"name": tool, "arguments": map[string]any{}})
+		fakecore.RPC(inv.bridgeURL, "tools/call", map[string]any{"name": tool, "arguments": map[string]any{}})
 	}
 	time.Sleep(30 * time.Second)
 }

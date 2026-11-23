@@ -51,11 +51,13 @@ func TestModels(t *testing.T) {
 	for _, m := range out["data"].([]any) {
 		ids = append(ids, m.(map[string]any)["id"].(string))
 	}
-	if strings.Join(ids, ",") != "sonnet,opus,haiku,gpt-4o" {
+	if strings.Join(ids, ",") != "sonnet,opus,haiku,gpt-4o,claude/sonnet,claude/opus,claude/haiku" {
 		t.Fatalf("ids %v", ids)
 	}
-	if resp, _ := s.Do("GET", "/v1/models/haiku", nil, auth); resp.StatusCode != 200 {
-		t.Fatalf("get model: %d", resp.StatusCode)
+	for _, m := range []string{"haiku", "claude/opus", "gpt-4o"} {
+		if resp, _ := s.Do("GET", "/v1/models/"+m, nil, auth); resp.StatusCode != 200 {
+			t.Fatalf("get model %s: %d", m, resp.StatusCode)
+		}
 	}
 	if resp, _ := s.Do("GET", "/v1/models/gpt-5-mega", nil, auth); resp.StatusCode != 404 {
 		t.Fatalf("unknown model: %d", resp.StatusCode)

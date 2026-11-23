@@ -1,0 +1,33 @@
+meta {
+  name: Restore the key's access
+  type: http
+  seq: 23
+}
+
+patch {
+  url: {{baseUrl}}/admin/api/keys/{{keyId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:pre-request {
+  req.setBody({ subscriptions: [bru.getVar("claudeId"), bru.getVar("cursorId")] });
+}
+
+tests {
+  test("both subscriptions, in priority order", function () {
+    expect(res.body.key.subscriptions).to.deep.equal([bru.getVar("claudeId"), bru.getVar("cursorId")]);
+  });
+}

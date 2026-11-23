@@ -14,26 +14,29 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
 )
 
 // Handler serves the OpenAI-compatible endpoints.
 type Handler struct {
 	cfg    *config.Config
 	keys   *keys.Store
-	runner *claude.Runner
+	subs   *subscriptions.Manager
+	slots  *agent.Slots
 	images *ImageProcessor
 }
 
 // NewHandler wires the handler.
-func NewHandler(cfg *config.Config, ks *keys.Store, runner *claude.Runner) *Handler {
+func NewHandler(cfg *config.Config, ks *keys.Store, subs *subscriptions.Manager, slots *agent.Slots) *Handler {
 	return &Handler{
 		cfg:    cfg,
 		keys:   ks,
-		runner: runner,
+		subs:   subs,
+		slots:  slots,
 		images: NewImageProcessor(cfg.ImageMaxDimension, cfg.AllowImageURLs, cfg.AllowPrivateImageURLs),
 	}
 }
@@ -81,32 +84,15 @@ func (h *Handler) auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (h *Handler) modelIDs() []string {
-	seen := map[string]bool{}
-	var ids []string
-	add := func(s string) {
-		if s != "" && !seen[s] {
-			seen[s] = true
-			ids = append(ids, s)
-		}
-	}
-	add(h.cfg.DefaultModel)
-	for _, m := range h.cfg.Models {
-		add(m)
-	}
-	for a := range h.cfg.ModelAliases {
-		add(a)
-	}
-	return ids
-}
-
 func modelObject(id string) map[string]any {
-	return map[string]any{"id": id, "object": "model", "created": 1700000000, "owned_by": "anthropic"}
+	return map[string]any{"id": id, "object": "model", "created": 1700000000, "owned_by": "creditapi"}
 }
 
+// listModels lists the models the calling key can use, through all of its
+// subscriptions.
 func (h *Handler) listModels(w http.ResponseWriter, r *http.Request) {
 	data := []map[string]any{}
-	for _, id := range h.modelIDs() {
+	for _, id := range h.subs.ModelsForKey(keyFrom(r.Context()).ID) {
 		data = append(data, modelObject(id))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
@@ -114,7 +100,7 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) getModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, ok := h.cfg.ResolveModel(id); !ok {
+	if _, err := h.subs.Candidates(keyFrom(r.Context()).ID, id); err != nil {
 		writeError(w, http.StatusNotFound, "invalid_request_error", "model_not_found", "model "+id+" is not available")
 		return
 	}
@@ -148,9 +134,10 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_n", "n > 1 is not supported")
 		return
 	}
-	model, ok := h.cfg.ResolveModel(req.Model)
-	if !ok {
-		writeError(w, http.StatusNotFound, "invalid_request_error", "model_not_found", "model "+req.Model+" is not available; see /v1/models")
+	loginURL := h.loginURL(r)
+	cands, err := h.subs.Candidates(key.ID, req.Model)
+	if err != nil {
+		h.fail(w, err, loginURL)
 		return
 	}
 
@@ -191,11 +178,11 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		maxTokens = minOutputTokens
 	}
 
-	opts := claude.RunOptions{
-		Model:           model,
+	opts := agent.RunOptions{
 		Effort:          effortFor(req.ReasoningEffort, h.cfg.DefaultEffort),
 		SystemPrompt:    h.systemPrompt(conv.system, tools, tc, jsonObject),
 		Content:         conv.content,
+		Transcript:      conv.transcript,
 		Tools:           tools,
 		ToolNames:       toolNames,
 		JSONSchema:      schema,
@@ -203,8 +190,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		MaxOutputTokens: maxTokens,
 	}
 
-	loginURL := h.loginURL(r)
-	release, err := h.runner.Acquire(ctx, h.cfg.QueueTimeout)
+	release, err := h.slots.Acquire(ctx, h.cfg.QueueTimeout)
 	if err != nil {
 		h.fail(w, err, loginURL)
 		return
@@ -213,23 +199,24 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	respModel := req.Model
 	if respModel == "" {
-		respModel = model
+		respModel = cands[0].Model
 	}
 	id := newID()
 	created := time.Now().Unix()
 	stops := stopSequences(req.Stop)
 	singleTool := req.ParallelToolCalls != nil && !*req.ParallelToolCalls
 
-	var res *claude.Result
+	run := &attempt{h: h, cands: cands, opts: opts, stops: stops}
+	var res *agent.Result
 	if req.Stream {
-		res, err = h.stream(ctx, w, opts, id, created, respModel, stops, singleTool, req.StreamOptions != nil && req.StreamOptions.IncludeUsage, loginURL)
+		res, err = h.stream(ctx, w, run, id, created, respModel, singleTool, req.StreamOptions != nil && req.StreamOptions.IncludeUsage, loginURL)
 	} else {
-		res, err = h.complete(ctx, w, opts, id, created, respModel, stops, singleTool, loginURL)
+		res, err = h.complete(ctx, w, run, id, created, respModel, singleTool, loginURL)
 	}
 
-	log := logging.From(r.Context()).With(slog.String("key", key.Name), slog.String("model", model),
-		slog.Bool("stream", req.Stream), slog.Int("images", conv.images), slog.Int("tools", len(tools)),
-		slog.Int64("duration_ms", time.Since(start).Milliseconds()))
+	log := logging.From(r.Context()).With(slog.String("key", key.Name), slog.String("model", run.served.Model),
+		slog.String("subscription", run.served.Sub.ID), slog.Bool("stream", req.Stream), slog.Int("images", conv.images),
+		slog.Int("tools", len(tools)), slog.Int("attempts", run.tries), slog.Int64("duration_ms", time.Since(start).Milliseconds()))
 	if err != nil {
 		log.Warn(logging.Event("chat", "completion", "failed"), logging.Err(err))
 		return
@@ -238,6 +225,73 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	h.keys.RecordUsage(key.ID, in, out)
 	log.Info(logging.Event("chat", "completion", "succeeded"), slog.String("finish", res.FinishReason),
 		slog.Int("tool_calls", len(res.ToolCalls)), slog.Int64("prompt_tokens", in), slog.Int64("completion_tokens", out))
+}
+
+// attempt runs a request on its candidate subscriptions in order. It moves
+// to the next candidate when one fails in a way another subscription might
+// not (signed out, rate limited, overloaded, CLI failure), as long as nothing
+// has been sent to the client yet.
+type attempt struct {
+	h      *Handler
+	cands  []subscriptions.Candidate
+	opts   agent.RunOptions
+	stops  []string
+	served subscriptions.Candidate
+	tries  int
+}
+
+func (a *attempt) run(ctx context.Context, cb agent.Callbacks) (*agent.Result, error) {
+	emitted := false
+	wrapped := agent.Callbacks{
+		Text: func(s string) {
+			emitted = true
+			if cb.Text != nil {
+				cb.Text(s)
+			}
+		},
+		ToolStart: func(i int, id, name string) {
+			emitted = true
+			if cb.ToolStart != nil {
+				cb.ToolStart(i, id, name)
+			}
+		},
+		ToolArgs: cb.ToolArgs,
+	}
+	var signedOut []subscriptions.Candidate
+	var firstErr error
+	for _, c := range a.cands {
+		a.served = c
+		a.tries++
+		opts := a.opts
+		opts.Model = c.Model
+		res, err := agent.Execute(ctx, c.Backend, c.Account, opts, wrapped)
+		if err == nil {
+			return res, nil
+		}
+		var ce *agent.Error
+		if ctx.Err() != nil || emitted || !errors.As(err, &ce) || !ce.Retryable() {
+			return nil, err
+		}
+		if ce.Kind == "auth" {
+			signedOut = append(signedOut, c)
+		} else if firstErr == nil {
+			firstErr = err
+		}
+		logging.From(ctx).Info(logging.Event("chat", "subscription", "skipped"), slog.String("subscription", c.Sub.ID),
+			slog.String("kind", ce.Kind))
+	}
+	if len(signedOut) > 0 {
+		names := make([]string, len(signedOut))
+		for i, c := range signedOut {
+			names[i] = c.Sub.Name
+		}
+		msg := names[0] + " is signed out or its credential expired"
+		if len(names) > 1 {
+			msg = strings.Join(names, ", ") + " are signed out or their credentials expired"
+		}
+		return nil, &agent.Error{Kind: "auth", Status: 401, Subscription: signedOut[0].Sub.ID, Message: msg}
+	}
+	return nil, firstErr
 }
 
 // minOutputTokens keeps tiny max_tokens values from starving tool calls and
@@ -303,10 +357,10 @@ func (f *stopFilter) flush() string {
 	return s
 }
 
-func (h *Handler) runWithStops(ctx context.Context, opts claude.RunOptions, stops []string, cb claude.Callbacks, onText func(string)) (*claude.Result, string, error) {
+func (h *Handler) runWithStops(ctx context.Context, a *attempt, cb agent.Callbacks, onText func(string)) (*agent.Result, string, error) {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	filter := newStopFilter(stops)
+	filter := newStopFilter(a.stops)
 	var text strings.Builder
 	cb.Text = func(delta string) {
 		out, hit := filter.push(delta)
@@ -320,11 +374,11 @@ func (h *Handler) runWithStops(ctx context.Context, opts claude.RunOptions, stop
 			cancelRun()
 		}
 	}
-	res, err := h.runner.Run(runCtx, opts, cb)
+	res, err := a.run(runCtx, cb)
 	if filter.hit && ctx.Err() == nil {
 		// Stopped on purpose at a stop sequence.
 		if res == nil {
-			res = &claude.Result{}
+			res = &agent.Result{}
 		}
 		res.Text = text.String()
 		res.FinishReason = "stop"
@@ -343,8 +397,8 @@ func (h *Handler) runWithStops(ctx context.Context, opts claude.RunOptions, stop
 	return res, text.String(), nil
 }
 
-func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, opts claude.RunOptions, id string, created int64, model string, stops []string, singleTool bool, loginURL string) (*claude.Result, error) {
-	res, text, err := h.runWithStops(ctx, opts, stops, claude.Callbacks{}, nil)
+func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, a *attempt, id string, created int64, model string, singleTool bool, loginURL string) (*agent.Result, error) {
+	res, text, err := h.runWithStops(ctx, a, agent.Callbacks{}, nil)
 	if err != nil {
 		h.fail(w, err, loginURL)
 		return nil, err
@@ -373,7 +427,7 @@ func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, opts clau
 	return res, nil
 }
 
-func toUsage(u claude.Usage) *Usage {
+func toUsage(u agent.Usage) *Usage {
 	p := u.PromptTokens()
 	return &Usage{
 		PromptTokens:        p,
@@ -409,7 +463,7 @@ func (s *sseWriter) raw(line string) {
 	s.f.Flush()
 }
 
-func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude.RunOptions, id string, created int64, model string, stops []string, singleTool, includeUsage bool, loginURL string) (*claude.Result, error) {
+func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, a *attempt, id string, created int64, model string, singleTool, includeUsage bool, loginURL string) (*agent.Result, error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		err := errors.New("streaming not supported by this connection")
@@ -432,7 +486,7 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude
 	empty := ""
 	sse.data(chunk(&ResponseMsg{Role: "assistant", Content: &empty}, nil))
 
-	// Keep proxies from closing an idle connection while Claude thinks.
+	// Keep proxies from closing an idle connection while the model thinks.
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -448,7 +502,7 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude
 		}
 	}()
 
-	cb := claude.Callbacks{
+	cb := agent.Callbacks{
 		ToolStart: func(index int, callID, name string) {
 			if singleTool && index > 0 {
 				return
@@ -467,7 +521,7 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude
 	onText := func(s string) {
 		sse.data(chunk(&ResponseMsg{Content: &s}, nil))
 	}
-	res, _, err := h.runWithStops(ctx, opts, stops, cb, onText)
+	res, _, err := h.runWithStops(ctx, a, cb, onText)
 	if err != nil {
 		if ctx.Err() == nil {
 			_, typ, code, msg := describeError(err, loginURL)
@@ -479,7 +533,7 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude
 	if res.StructuredOutput != nil {
 		s := string(res.StructuredOutput)
 		sse.data(chunk(&ResponseMsg{Content: &s}, nil))
-	} else if opts.JSONObject && res.Text != "" {
+	} else if a.opts.JSONObject && res.Text != "" {
 		// JSON mode buffers the reply; send it even if no JSON was found.
 		s := res.Text
 		sse.data(chunk(&ResponseMsg{Content: &s}, nil))
@@ -514,13 +568,21 @@ func (h *Handler) loginURL(r *http.Request) string {
 }
 
 func describeError(err error, loginURL string) (status int, typ, code, msg string) {
-	var ce *claude.Error
+	var ce *agent.Error
 	if errors.As(err, &ce) {
 		switch ce.Kind {
 		case "auth":
 			// 401 so OpenAI SDKs do not retry; the message carries the link.
-			return http.StatusUnauthorized, "authentication_error", "claude_login_required",
-				"Claude login required: this server's Claude subscription is signed out or its token expired. Sign in at " + loginURL + " and then try again."
+			link := loginURL
+			if ce.Subscription != "" {
+				link += "?subscription=" + ce.Subscription
+			}
+			return http.StatusUnauthorized, "authentication_error", "subscription_login_required",
+				"Sign-in required: " + ce.Message + ". Sign in at " + link + " and then try again."
+		case "forbidden":
+			return http.StatusForbidden, "permission_error", "no_subscription", ce.Message
+		case "not_found":
+			return http.StatusNotFound, "invalid_request_error", "model_not_found", ce.Message
 		case "rate_limit":
 			return ce.Status, "rate_limit_error", "rate_limit_exceeded", ce.Message
 		case "busy":

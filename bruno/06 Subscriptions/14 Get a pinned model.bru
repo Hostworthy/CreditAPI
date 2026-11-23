@@ -1,0 +1,25 @@
+meta {
+  name: Get a pinned model
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/v1/models/bruno-cursor/gpt-5
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("model object", function () {
+    expect(res.body.id).to.equal("bruno-cursor/gpt-5");
+  });
+}

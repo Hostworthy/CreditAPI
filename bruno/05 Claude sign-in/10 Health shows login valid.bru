@@ -15,8 +15,8 @@ assert {
 }
 
 tests {
-  test("claude_login is valid", function () {
-    expect(res.body.claude_login).to.equal("valid");
-    expect(res.body.claude_token).to.equal(true);
+  test("the subscription is valid", function () {
+    const sub = res.body.subscriptions.find((s) => s.id === bru.getVar("claudeId"));
+    expect(sub.login).to.equal("valid");
   });
 }

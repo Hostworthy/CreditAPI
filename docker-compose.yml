@@ -8,9 +8,9 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Keys, the saved Claude login and CLI state live here.
+      # Keys, subscriptions, saved logins and CLI state live here.
       - creditapi-data:/data
-    # Each request runs one claude process (roughly 250-350 MB while active).
+    # Each request runs one CLI process (roughly 250-350 MB while active).
     mem_limit: 1536m
 
     # To let apps in other compose projects reach this container by name,

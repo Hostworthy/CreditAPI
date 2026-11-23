@@ -16,10 +16,12 @@ import (
 	"github.com/atb00ker/CreditAPI/src/internal/config"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
 	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakecursor"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakes"
 )
 
 func TestMain(m *testing.M) {
-	fakeclaude.MaybeRun()
+	fakes.MaybeRun()
 	os.Exit(m.Run())
 }
 
@@ -34,13 +36,27 @@ func freePort(t *testing.T) string {
 	return port
 }
 
+// testConfig points both CLIs at the test binary (through symlinks whose
+// names pick the fake) in a fresh data directory.
 func testConfig(t *testing.T) *config.Config {
 	t.Helper()
 	exe, _ := os.Executable()
 	dir := t.TempDir()
+	bins := filepath.Join(dir, "bin")
+	_ = os.MkdirAll(bins, 0o755)
+	for _, name := range []string{"claude", "cursor-agent"} {
+		if err := os.Symlink(exe, filepath.Join(bins, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv(fakeclaude.EnvScenario, "auto")
+	t.Setenv(fakecursor.EnvMode, "auto")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	t.Setenv("CURSOR_API_KEY", "")
 	return &config.Config{
-		Host: "127.0.0.1", Port: freePort(t), DataDir: dir, AdminPassword: "test-admin-password",
-		ClaudeBin: exe, ClaudeHome: filepath.Join(dir, "home"), DefaultModel: "sonnet",
+		Host: "127.0.0.1", Port: freePort(t), DataDir: filepath.Join(dir, "data"), AdminPassword: "test-admin-password",
+		ClaudeBin: filepath.Join(bins, "claude"), CursorBin: filepath.Join(bins, "cursor-agent"),
+		DefaultModel: "sonnet", Models: []string{"sonnet", "haiku"}, CursorDefaultModel: "auto", CursorModels: []string{"auto"},
 		MaxConcurrent: 1, QueueTimeout: time.Second, RequestTimeout: 10 * time.Second, MaxBodyBytes: 1 << 20,
 	}
 }
@@ -57,7 +73,6 @@ func quietLogs(t *testing.T) *strings.Builder {
 
 func TestRunServesAndShutsDown(t *testing.T) {
 	logs := quietLogs(t)
-	t.Setenv(fakeclaude.EnvScenario, "auto")
 	cfg := testConfig(t)
 	s, err := New(cfg, "1.2.3")
 	if err != nil {
@@ -80,17 +95,21 @@ func TestRunServesAndShutsDown(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !strings.Contains(string(body), `"claude_login":"unknown"`) {
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"logins_ok":true`) ||
+		!strings.Contains(string(body), `"name":"Claude","provider":"claude","login":"unknown"`) {
 		t.Fatalf("healthz %d %s", resp.StatusCode, body)
 	}
 
-	// Start detects the CLI version in the background.
+	// Start detects the CLI versions in the background.
 	deadline := time.Now().Add(5 * time.Second)
-	for s.Status.Snapshot().CLIVersion == "" && time.Now().Before(deadline) {
+	for (s.Subs.Version("claude") == "" || s.Subs.Version("cursor") == "") && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if v := s.Status.Snapshot().CLIVersion; v != "0.0.0-fake (Claude Code)" {
-		t.Fatalf("cli version %q", v)
+	if v := s.Subs.Version("claude"); v != "0.0.0-fake (Claude Code)" {
+		t.Fatalf("claude version %q", v)
+	}
+	if v := s.Subs.Version("cursor"); v != fakecursor.Version {
+		t.Fatalf("cursor version %q", v)
 	}
 
 	cancel()
@@ -102,13 +121,56 @@ func TestRunServesAndShutsDown(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
 	}
-	for _, event := range []string{"server.start.succeeded", "config.token.missing", "config.public-url.unset", "server.shutdown.started", "http.request.completed"} {
+	for _, event := range []string{"server.start.succeeded", "config.credential.missing", "config.public-url.unset", "server.shutdown.started", "http.request.completed"} {
 		if !strings.Contains(logs.String(), logging.Service+"."+event) {
 			t.Errorf("log event %s missing", event)
 		}
 	}
 	if strings.Contains(logs.String(), cfg.AdminPassword) {
 		t.Error("admin password leaked into logs")
+	}
+}
+
+func TestFirstStartMigratesSingleSubscriptionInstall(t *testing.T) {
+	quietLogs(t)
+	cfg := testConfig(t)
+	t.Setenv("CURSOR_API_KEY", fakecursor.ValidKey)
+	_ = os.MkdirAll(filepath.Join(cfg.DataDir, "claude-home", ".claude"), 0o700)
+	_ = os.WriteFile(filepath.Join(cfg.DataDir, "claude-oauth-token"), []byte(fakeclaude.ValidToken+"\n"), 0o600)
+	_ = os.WriteFile(filepath.Join(cfg.DataDir, "keys.json"),
+		[]byte(`{"keys":[{"id":"k1","name":"old","hash":"x","hint":"sk-credit-…abcd","created_at":"2026-01-01T00:00:00Z"}]}`), 0o600)
+	s, err := New(cfg, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	list := s.Subs.Store.List()
+	if len(list) != 2 || list[0].Name != "Claude" || list[1].Name != "Cursor" {
+		t.Fatalf("subscriptions %+v", list)
+	}
+	for _, sub := range list {
+		if !sub.HasKey("k1") {
+			t.Fatalf("existing key not granted %+v", sub)
+		}
+	}
+	acc, _, _ := s.Subs.Account(list[0])
+	if tok, src := acc.Tokens.Token(); tok != fakeclaude.ValidToken || src != "login" {
+		t.Fatalf("token %q %q", tok, src)
+	}
+	cur, _, _ := s.Subs.Account(list[1])
+	if tok, src := cur.Tokens.Token(); tok != fakecursor.ValidKey || src != "env" {
+		t.Fatalf("cursor key %q %q", tok, src)
+	}
+
+	// A second start keeps the subscriptions as they are.
+	_ = s.Close()
+	again, err := New(cfg, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if n := len(again.Subs.Store.List()); n != 2 {
+		t.Fatalf("subscriptions after restart: %d", n)
 	}
 }
 

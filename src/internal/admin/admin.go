@@ -3,7 +3,6 @@
 package admin
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -25,10 +25,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
 )
 
 //go:embed web
@@ -43,22 +44,17 @@ const (
 type Admin struct {
 	cfg     *config.Config
 	keys    *keys.Store
-	tokens  *claude.TokenStore
-	login   *claude.LoginManager
-	runner  *claude.Runner
-	status  *claude.Status
+	subs    *subscriptions.Manager
+	slots   *agent.Slots
 	hmacKey []byte
 	limiter *limiter
 	checkMu sync.Mutex // one login check at a time
 }
 
-// checkReuse is how long a verified login is trusted without a new check.
-const checkReuse = 10 * time.Minute
-
 // New creates the admin handlers. The session signing key is derived from a
 // random per-installation secret plus ADMIN_PASSWORD, so changing the
 // password signs everyone out.
-func New(cfg *config.Config, ks *keys.Store, tokens *claude.TokenStore, login *claude.LoginManager, runner *claude.Runner, status *claude.Status) (*Admin, error) {
+func New(cfg *config.Config, ks *keys.Store, subs *subscriptions.Manager, slots *agent.Slots) (*Admin, error) {
 	secretPath := filepath.Join(cfg.DataDir, "session-secret")
 	secret, err := os.ReadFile(secretPath)
 	if err != nil || len(secret) < 32 {
@@ -73,7 +69,7 @@ func New(cfg *config.Config, ks *keys.Store, tokens *claude.TokenStore, login *c
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(cfg.AdminPassword))
 	return &Admin{
-		cfg: cfg, keys: ks, tokens: tokens, login: login, runner: runner, status: status,
+		cfg: cfg, keys: ks, subs: subs, slots: slots,
 		hmacKey: mac.Sum(nil),
 		limiter: &limiter{fails: map[string][]time.Time{}},
 	}, nil
@@ -107,13 +103,7 @@ func (a *Admin) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /admin/api/keys/{id}", a.require(a.updateKey))
 	mux.HandleFunc("DELETE /admin/api/keys/{id}", a.require(a.deleteKey))
 
-	mux.HandleFunc("GET /admin/api/claude", a.require(a.claudeStatus))
-	mux.HandleFunc("POST /admin/api/claude/login", a.require(a.startLogin))
-	mux.HandleFunc("POST /admin/api/claude/login/code", a.require(a.submitCode))
-	mux.HandleFunc("DELETE /admin/api/claude/login", a.require(a.cancelLogin))
-	mux.HandleFunc("PUT /admin/api/claude/token", a.require(a.setToken))
-	mux.HandleFunc("DELETE /admin/api/claude/token", a.require(a.clearToken))
-	mux.HandleFunc("POST /admin/api/claude/check", a.require(a.checkClaude))
+	a.registerSubscriptions(mux)
 }
 
 func (a *Admin) page(static fs.FS, name string) http.HandlerFunc {
@@ -260,38 +250,106 @@ func (a *Admin) me(w http.ResponseWriter, r *http.Request) {
 
 // --- keys --------------------------------------------------------------------
 
-func (a *Admin) listKeys(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"keys": a.keys.List()})
+// keyView adds the subscriptions a key may use.
+func (a *Admin) keyView(k keys.Key) map[string]any {
+	return map[string]any{
+		"id": k.ID, "name": k.Name, "hint": k.Hint, "created_at": k.CreatedAt, "last_used_at": k.LastUsedAt,
+		"disabled": k.Disabled, "requests": k.Requests, "input_tokens": k.InputTokens, "output_tokens": k.OutputTokens,
+		"subscriptions": nonNil(a.subs.Store.GrantsOf(k.ID)),
+	}
 }
 
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+func (a *Admin) listKeys(w http.ResponseWriter, r *http.Request) {
+	list := []map[string]any{}
+	for _, k := range a.keys.List() {
+		list = append(list, a.keyView(k))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"keys": list})
+}
+
+func (a *Admin) checkSubscriptionIDs(ids []string) error {
+	for _, id := range ids {
+		if _, ok := a.subs.Store.Get(id); !ok {
+			return fmt.Errorf("unknown subscription %q", id)
+		}
+	}
+	return nil
+}
+
+func (a *Admin) checkKeyIDs(ids []string) error {
+	known := map[string]bool{}
+	for _, k := range a.keys.List() {
+		known[k.ID] = true
+	}
+	for _, id := range ids {
+		if !known[strings.TrimSpace(id)] {
+			return fmt.Errorf("unknown key %q", id)
+		}
+	}
+	return nil
+}
+
+// createKey creates a key. Without "subscriptions" in the body the key may use
+// every existing subscription; pass a list (possibly empty) to choose.
 func (a *Admin) createKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name string `json:"name"`
+		Name          string    `json:"name"`
+		Subscriptions *[]string `json:"subscriptions"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	var grants []string
+	if body.Subscriptions == nil {
+		for _, s := range a.subs.Store.List() {
+			grants = append(grants, s.ID)
+		}
+	} else {
+		grants = *body.Subscriptions
+		if err := a.checkSubscriptionIDs(grants); err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	k, secret, err := a.keys.Create(body.Name)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	k.Hash = ""
+	if err := a.subs.Store.SetKeyGrants(k.ID, grants); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	logging.From(r.Context()).Info(logging.Event("key", "create", "succeeded"), slog.String("key", k.Name), slog.String("key_id", k.ID))
-	writeJSON(w, http.StatusCreated, map[string]any{"key": k, "secret": secret})
+	writeJSON(w, http.StatusCreated, map[string]any{"key": a.keyView(*k), "secret": secret})
 }
 
 func (a *Admin) updateKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name     *string `json:"name"`
-		Disabled *bool   `json:"disabled"`
+		Name          *string   `json:"name"`
+		Disabled      *bool     `json:"disabled"`
+		Subscriptions *[]string `json:"subscriptions"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	k, err := a.keys.Update(r.PathValue("id"), body.Name, body.Disabled)
+	id := r.PathValue("id")
+	if body.Subscriptions != nil {
+		if err := a.checkSubscriptionIDs(*body.Subscriptions); err != nil {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	k, err := a.keys.Update(id, body.Name, body.Disabled)
 	if errors.Is(err, os.ErrNotExist) {
 		jsonError(w, http.StatusNotFound, "key not found")
 		return
@@ -300,11 +358,18 @@ func (a *Admin) updateKey(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"key": k})
+	if body.Subscriptions != nil {
+		if err := a.subs.Store.SetKeyGrants(id, *body.Subscriptions); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"key": a.keyView(*k)})
 }
 
 func (a *Admin) deleteKey(w http.ResponseWriter, r *http.Request) {
-	err := a.keys.Delete(r.PathValue("id"))
+	id := r.PathValue("id")
+	err := a.keys.Delete(id)
 	if errors.Is(err, os.ErrNotExist) {
 		jsonError(w, http.StatusNotFound, "key not found")
 		return
@@ -313,141 +378,12 @@ func (a *Admin) deleteKey(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	logging.From(r.Context()).Info(logging.Event("key", "delete", "succeeded"), slog.String("key_id", r.PathValue("id")))
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-// --- claude auth ---------------------------------------------------------------
-
-func (a *Admin) claudeStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"token":   a.tokenInfo(),
-		"auth":    a.status.Auth(a.tokens.Version()),
-		"login":   a.login.Status(),
-		"runtime": a.status.Snapshot(),
-		"config": map[string]any{
-			"default_model":  a.cfg.DefaultModel,
-			"models":         a.cfg.Models,
-			"max_concurrent": a.cfg.MaxConcurrent,
-			"default_effort": a.cfg.DefaultEffort,
-			"env_token_set":  a.cfg.EnvToken != "",
-		},
-	})
-}
-
-func (a *Admin) tokenInfo() map[string]any {
-	tok, source := a.tokens.Token()
-	token := map[string]any{"source": source, "hint": claude.Hint(tok)}
-	if t := a.tokens.SavedAt(); source == "login" && !t.IsZero() {
-		token["saved_at"] = t.UTC()
-		token["expires_about"] = t.Add(claude.TokenLifetime).UTC()
-	}
-	return token
-}
-
-func (a *Admin) startLogin(w http.ResponseWriter, r *http.Request) {
-	st, err := a.login.Start()
-	if err != nil {
+	if err := a.subs.Store.SetKeyGrants(id, nil); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, st)
-}
-
-func (a *Admin) submitCode(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Code string `json:"code"`
-	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := a.login.SubmitCode(body.Code); err != nil {
-		jsonError(w, http.StatusConflict, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, a.login.Status())
-}
-
-func (a *Admin) cancelLogin(w http.ResponseWriter, r *http.Request) {
-	a.login.Cancel()
-	writeJSON(w, http.StatusOK, a.login.Status())
-}
-
-func (a *Admin) setToken(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Token string `json:"token"`
-	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := a.tokens.Save(body.Token); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	logging.From(r.Context()).Info(logging.Event("login", "token", "saved"))
+	logging.From(r.Context()).Info(logging.Event("key", "delete", "succeeded"), slog.String("key_id", id))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func (a *Admin) clearToken(w http.ResponseWriter, r *http.Request) {
-	if err := a.tokens.Clear(); err != nil {
-		jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	logging.From(r.Context()).Info(logging.Event("login", "token", "removed"))
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-// checkClaude answers "is the Claude login working?". A recent successful
-// request or check is reused; otherwise a one-word prompt is sent to Claude.
-// state is "valid", "login_required" or "error" (could not tell, e.g. network).
-func (a *Admin) checkClaude(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Force bool `json:"force"`
-	}
-	_ = readJSON(r, &body)
-
-	a.checkMu.Lock()
-	defer a.checkMu.Unlock()
-
-	out := map[string]any{"token": a.tokenInfo()}
-	if info := a.status.Auth(a.tokens.Version()); !body.Force && info.State == "valid" &&
-		info.CheckedAt != nil && time.Since(*info.CheckedAt) < checkReuse {
-		out["state"], out["checked_at"], out["source"], out["cached"] = "valid", info.CheckedAt, info.Source, true
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-	defer cancel()
-	release, err := a.runner.Acquire(ctx, 30*time.Second)
-	if err != nil {
-		out["state"], out["reason"] = "error", err.Error()
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
-	defer release()
-	start := time.Now()
-	res, err := a.runner.Run(ctx, claude.RunOptions{
-		Model:        "haiku",
-		SystemPrompt: "You are a connectivity check. Follow the instruction exactly.",
-		Content:      []claude.ContentBlock{{Type: "text", Text: "Reply with exactly the word OK and nothing else."}},
-		Probe:        true,
-	}, claude.Callbacks{})
-	now := time.Now().UTC()
-	out["checked_at"], out["source"], out["cached"] = now, "check", false
-	out["duration_ms"] = time.Since(start).Milliseconds()
-	var ce *claude.Error
-	switch {
-	case err == nil:
-		out["state"], out["reply"], out["model"] = "valid", strings.TrimSpace(res.Text), res.Model
-	case errors.As(err, &ce) && ce.Kind == "auth":
-		out["state"], out["reason"] = "login_required", ce.Message
-	default:
-		out["state"], out["reason"] = "error", err.Error()
-	}
-	writeJSON(w, http.StatusOK, out)
 }
 
 // --- helpers -----------------------------------------------------------------

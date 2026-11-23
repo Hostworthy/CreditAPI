@@ -1,0 +1,19 @@
+meta {
+  name: Deleted subscription is gone
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/admin/api/subscriptions/{{cursorId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 404
+}

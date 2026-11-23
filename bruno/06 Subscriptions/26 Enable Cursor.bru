@@ -1,0 +1,26 @@
+meta {
+  name: Enable Cursor
+  type: http
+  seq: 26
+}
+
+patch {
+  url: {{baseUrl}}/admin/api/subscriptions/{{cursorId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "disabled": false,
+    "name": "Bruno Cursor"
+  }
+}
+
+assert {
+  res.status: eq 200
+}

@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/admin/api/claude/login
+  url: {{baseUrl}}/admin/api/subscriptions/{{claudeId}}/login
   body: none
   auth: bearer
 }
@@ -25,6 +25,8 @@ script:post-response {
 tests {
   test("waiting for the code", function () {
     expect(res.body.state).to.equal("waiting_for_code");
+    expect(res.body.needs_code).to.equal(true);
+    expect(res.body.subscription).to.equal(bru.getVar("claudeId"));
   });
   test("shows the Claude sign-in link", function () {
     expect(res.body.url).to.match(/^https:\/\/claude\.ai\/oauth\/authorize\?/);

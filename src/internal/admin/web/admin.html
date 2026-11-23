@@ -13,8 +13,8 @@
 <header class="topbar">
   <a class="brand" href="/admin">CreditAPI</a>
   <nav class="nav" data-auth-only hidden>
-    <a href="/admin" aria-current="page">Keys</a>
-    <a href="/login">Claude login</a>
+    <a href="/admin" aria-current="page">Admin</a>
+    <a href="/login">Sign-in</a>
     <button type="button" class="link" data-action="signout">Sign out</button>
   </nav>
 </header>
@@ -32,18 +32,23 @@
 
   <div data-auth-only hidden>
     <section class="card">
-      <div class="row space">
-        <h2>Claude</h2>
-        <a class="button" href="/login">Manage login</a>
-      </div>
-      <p id="claude-summary" class="muted">Loading…</p>
-      <div id="usage" class="usage"></div>
-      <dl id="runtime" class="facts"></dl>
+      <h2>Subscriptions</h2>
+      <p class="muted">The AI accounts that answer requests. A request uses the first subscription (top to bottom) that its key may use and that offers the requested model, and moves on to the next one when a subscription is signed out or at its limit.</p>
+      <ul id="sub-list" class="items"></ul>
+      <p id="no-subs" class="muted" hidden>No subscriptions yet. Add one below.</p>
+      <form id="create-sub" class="row wrap-row">
+        <label for="sub-name" class="sr-only">Subscription name</label>
+        <input id="sub-name" name="name" placeholder="Name, e.g. Claude (Personal)" maxlength="60" required autocomplete="off">
+        <label for="sub-provider" class="sr-only">Provider</label>
+        <select id="sub-provider" name="provider"></select>
+        <button type="submit" class="primary">Add subscription</button>
+      </form>
+      <p class="error" id="sub-error" role="alert"></p>
     </section>
 
     <section class="card">
       <h2>Virtual API keys</h2>
-      <p class="muted">Give each app its own key. The full key is shown only once.</p>
+      <p class="muted">Give each app its own key. The full key is shown only once. A new key may use every subscription; change that under Access.</p>
       <form id="create-key" class="row wrap-row">
         <label for="key-name" class="sr-only">Key name</label>
         <input id="key-name" name="name" placeholder="Name, e.g. my-app" maxlength="100" required autocomplete="off">
@@ -59,8 +64,17 @@
         </div>
       </div>
 
-      <ul id="key-list" class="keys"></ul>
+      <ul id="key-list" class="items"></ul>
       <p id="no-keys" class="muted" hidden>No keys yet.</p>
+    </section>
+
+    <section class="card" id="access-card" hidden>
+      <h2>Access</h2>
+      <p class="muted">Tick the subscriptions each key may use.</p>
+      <div class="table-scroll">
+        <table id="access" class="matrix"></table>
+      </div>
+      <p class="error" id="access-error" role="alert"></p>
     </section>
 
     <section class="card">
@@ -76,7 +90,7 @@
           <li>In your app's AI settings, add a provider of type <em>OpenAI</em> or <em>OpenAI compatible</em>.</li>
           <li>Base URL: the value above. Most apps want it to end in <code>/v1</code>.</li>
           <li>API key: a virtual key created here.</li>
-          <li>Model: one of the models listed above. Unknown model names use the default model.</li>
+          <li>Model: one of the models listed above. To use one particular subscription, put its short name in front, like <code>claude-personal/sonnet</code>. Other model names use each subscription's default model.</li>
           <li>If the app runs in Docker on the same host, use this container's name in the base URL. Some apps only allow private-network addresses after you enable that in their settings.</li>
         </ol>
       </details>
@@ -94,6 +108,17 @@
     <div class="row end">
       <button value="cancel" type="submit">Cancel</button>
       <button value="ok" type="submit" class="danger">Delete</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="rename-dialog">
+  <form method="dialog" class="stack" id="rename-form">
+    <label for="rename-input">New name</label>
+    <input id="rename-input" maxlength="60" required autocomplete="off">
+    <div class="row end">
+      <button value="cancel" type="submit" formnovalidate>Cancel</button>
+      <button value="ok" type="submit" class="primary">Rename</button>
     </div>
   </form>
 </dialog>

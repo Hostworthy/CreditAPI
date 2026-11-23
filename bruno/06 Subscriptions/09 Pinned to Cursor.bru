@@ -1,0 +1,41 @@
+meta {
+  name: Pinned to Cursor
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "bruno-cursor/auto",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:whoami]"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("answered by the expected subscription", function () {
+    expect(res.body.choices[0].message.content).to.equal("Served by " + ("cursorId" === "cursorId" ? "cursor" : "claude") + " subscription " + bru.getVar("cursorId"));
+  });
+
+  test("echoes the requested model", function () {
+    expect(res.body.model).to.equal("bruno-cursor/auto");
+  });
+}

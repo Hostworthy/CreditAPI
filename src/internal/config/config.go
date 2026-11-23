@@ -23,12 +23,16 @@ type Config struct {
 	// It is used for the login link in "login required" errors.
 	PublicURL string
 
-	ClaudeBin  string
-	ClaudeHome string // HOME used for the claude CLI (credentials, cache)
-	EnvToken   string // CLAUDE_CODE_OAUTH_TOKEN supplied via env, if any
+	ClaudeBin string
 
-	DefaultModel  string
-	Models        []string
+	// DefaultModel and Models are the Claude defaults and advertised models.
+	DefaultModel string
+	Models       []string
+
+	CursorBin          string
+	CursorModels       []string
+	CursorDefaultModel string
+
 	ModelAliases  map[string]string
 	StrictModels  bool
 	DefaultEffort string
@@ -47,14 +51,16 @@ type Config struct {
 	LogLevel string
 }
 
-// OwnEnvVars are consumed by this server and never forwarded to the claude
-// subprocess.
+// OwnEnvVars are consumed by this server and never forwarded to the CLI
+// subprocesses (credentials are passed per subscription).
 var OwnEnvVars = []string{
-	"ADMIN_PASSWORD", "HOST", "PORT", "DATA_DIR", "ENV_CREDITAPI", "ENV_PATH", "CLAUDE_BIN", "CLAUDE_HOME", "PUBLIC_URL",
-	"DEFAULT_MODEL", "MODELS", "MODEL_ALIASES", "STRICT_MODELS", "DEFAULT_EFFORT",
+	"ADMIN_PASSWORD", "HOST", "PORT", "DATA_DIR", "ENV_CREDITAPI", "ENV_PATH", "PUBLIC_URL",
+	"CLAUDE_BIN", "DEFAULT_MODEL", "MODELS", "CURSOR_BIN", "CURSOR_MODELS", "CURSOR_DEFAULT_MODEL",
+	"MODEL_ALIASES", "STRICT_MODELS", "DEFAULT_EFFORT",
 	"DEFAULT_SYSTEM_PROMPT", "MAX_CONCURRENT", "QUEUE_TIMEOUT", "REQUEST_TIMEOUT",
 	"IMAGE_MAX_DIMENSION", "MAX_IMAGES", "ALLOW_IMAGE_URLS",
-	"ALLOW_PRIVATE_IMAGE_URLS", "MAX_BODY_MB", "LOG_LEVEL", "CLAUDE_CODE_OAUTH_TOKEN",
+	"ALLOW_PRIVATE_IMAGE_URLS", "MAX_BODY_MB", "LOG_LEVEL",
+	"CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY", "ANTHROPIC_API_KEY",
 }
 
 // Load reads the configuration from the environment.
@@ -66,9 +72,11 @@ func Load() (*Config, error) {
 		AdminPassword:         os.Getenv("ADMIN_PASSWORD"),
 		PublicURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/"),
 		ClaudeBin:             env("CLAUDE_BIN", "claude"),
-		EnvToken:              strings.TrimSpace(os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")),
 		DefaultModel:          env("DEFAULT_MODEL", "sonnet"),
 		Models:                splitList(env("MODELS", "opus,sonnet,haiku")),
+		CursorBin:             env("CURSOR_BIN", "cursor-agent"),
+		CursorModels:          splitList(env("CURSOR_MODELS", "auto")),
+		CursorDefaultModel:    env("CURSOR_DEFAULT_MODEL", "auto"),
 		StrictModels:          envBool("STRICT_MODELS", false),
 		DefaultEffort:         strings.ToLower(os.Getenv("DEFAULT_EFFORT")),
 		DefaultSystemPrompt:   env("DEFAULT_SYSTEM_PROMPT", "You are a helpful assistant."),
@@ -130,15 +138,13 @@ func Load() (*Config, error) {
 	if c.DataDir, err = filepath.Abs(c.DataDir); err != nil {
 		return nil, err
 	}
-	c.ClaudeHome = env("CLAUDE_HOME", filepath.Join(c.DataDir, "claude-home"))
-	if c.ClaudeHome, err = filepath.Abs(c.ClaudeHome); err != nil {
-		return nil, err
-	}
-	// claude runs in its own working directory, so a relative path such as
-	// ./bin/fakeclaude must be made absolute here.
-	if strings.ContainsRune(c.ClaudeBin, filepath.Separator) && !filepath.IsAbs(c.ClaudeBin) {
-		if c.ClaudeBin, err = filepath.Abs(c.ClaudeBin); err != nil {
-			return nil, err
+	// The CLIs run in their own working directories, so relative paths such
+	// as ./bin/fakeclaude must be made absolute here.
+	for _, bin := range []*string{&c.ClaudeBin, &c.CursorBin} {
+		if strings.ContainsRune(*bin, filepath.Separator) && !filepath.IsAbs(*bin) {
+			if *bin, err = filepath.Abs(*bin); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return c, nil
@@ -214,36 +220,4 @@ func parseAliases(s string) (map[string]string, error) {
 		m[k] = v
 	}
 	return m, nil
-}
-
-// ResolveModel maps a client-requested model name to a claude CLI model.
-// It returns ok=false only when STRICT_MODELS is on and the name is unknown.
-func (c *Config) ResolveModel(requested string) (string, bool) {
-	requested = strings.TrimSpace(requested)
-	if requested == "" {
-		return c.DefaultModel, true
-	}
-	if v, ok := c.ModelAliases[requested]; ok {
-		return v, true
-	}
-	for _, m := range c.Models {
-		if m == requested {
-			return m, true
-		}
-	}
-	if strings.HasPrefix(requested, "claude-") || isBuiltinAlias(requested) {
-		return requested, true
-	}
-	if c.StrictModels {
-		return "", false
-	}
-	return c.DefaultModel, true
-}
-
-func isBuiltinAlias(s string) bool {
-	switch strings.ToLower(s) {
-	case "opus", "sonnet", "haiku", "fable", "default", "opusplan":
-		return true
-	}
-	return strings.Contains(s, "[1m]")
 }

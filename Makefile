@@ -9,14 +9,14 @@ help:
 	@echo "  install      Download Go module dependencies"
 	@echo "  update       Refresh module dependencies within go.mod constraints"
 	@echo "  upgrade      Upgrade module dependencies to latest"
-	@echo "  dev          Run the API server against the real claude CLI (.env)"
+	@echo "  dev          Run the API server against the real CLIs (.env)"
 	@echo "  kill         Kill the API server (PORT from .env)"
 	@echo "  build        Build bin/creditapi"
-	@echo "  fake         Build bin/fakeclaude (fake Claude CLI for tests and Bruno)"
+	@echo "  fake         Build bin/fakeclaude and bin/fakecursor (fake CLIs for Bruno)"
 	@echo "  test         Run Go unit and integration tests"
 	@echo "  check        tidy, format, vet, and test"
 	@echo "  ci           Check-only: format diff, vet, and race tests"
-	@echo "  e2e          Run the server with the fake Claude CLI for Bruno (.env.bruno)"
+	@echo "  e2e          Run the server with the fake CLIs for Bruno (.env.bruno)"
 	@echo "  bruno        Run the Bruno collection against a running e2e stack"
 	@echo "  e2e-ci       Start the e2e stack, run Bruno headless, stop it (used by CI)"
 	@echo "  docker       Build the Docker image"
@@ -44,6 +44,7 @@ build:
 
 fake:
 	go build -o bin/fakeclaude ./src/cmd/fakeclaude
+	go build -o bin/fakecursor ./src/cmd/fakecursor
 
 test:
 	go test ./...

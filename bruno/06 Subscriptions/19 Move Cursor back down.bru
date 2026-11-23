@@ -1,0 +1,25 @@
+meta {
+  name: Move Cursor back down
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/admin/api/subscriptions/{{cursorId}}/move
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "direction": "down"
+  }
+}
+
+assert {
+  res.status: eq 200
+}

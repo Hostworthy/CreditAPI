@@ -1,0 +1,56 @@
+meta {
+  name: Tool call through Cursor
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "bruno-cursor/auto",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "log_food",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "food_name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "log a banana"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  const choice = res.body.choices[0];
+  test("returned as OpenAI tool_calls", function () {
+    expect(choice.finish_reason).to.equal("tool_calls");
+    expect(choice.message.tool_calls[0].function.name).to.equal("log_food");
+    expect(JSON.parse(choice.message.tool_calls[0].function.arguments)).to.deep.equal({ food_name: "fake food name" });
+  });
+}

@@ -1,0 +1,19 @@
+meta {
+  name: Sign Claude out
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/admin/api/subscriptions/{{claudeId}}/credential
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}

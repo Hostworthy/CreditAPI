@@ -1,0 +1,35 @@
+meta {
+  name: Subscription status
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/admin/api/subscriptions/{{claudeId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("no credential saved", function () {
+    expect(res.body.credential.source).to.equal("");
+    expect(res.body.credential.name).to.equal("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+  test("no sign-in running", function () {
+    expect(res.body.login.state).to.equal("idle");
+  });
+  test("the new key may use it", function () {
+    expect(res.body.keys).to.include(bru.getVar("keyId"));
+  });
+  test("reports the fake CLI version", function () {
+    expect(res.body.cli_version).to.contain("fake");
+  });
+}

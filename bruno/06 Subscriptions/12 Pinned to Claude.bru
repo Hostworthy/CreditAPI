@@ -1,0 +1,33 @@
+meta {
+  name: Pinned to Claude
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:pre-request {
+  req.setBody({ model: bru.getVar("claudeSlug") + "/haiku", messages: [{ role: "user", content: "[fake:whoami]" }] });
+}
+
+tests {
+  test("answered by the expected subscription", function () {
+    expect(res.body.choices[0].message.content).to.equal("Served by " + ("claudeId" === "cursorId" ? "cursor" : "claude") + " subscription " + bru.getVar("claudeId"));
+  });
+}

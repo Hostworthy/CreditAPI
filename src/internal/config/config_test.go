@@ -11,7 +11,7 @@ import (
 // setEnv clears every variable this package reads, then applies vars.
 func setEnv(t *testing.T, vars map[string]string) {
 	t.Helper()
-	for _, k := range append(OwnEnvVars, "CLAUDE_HOME") {
+	for _, k := range OwnEnvVars {
 		t.Setenv(k, "")
 	}
 	for k, v := range vars {
@@ -37,8 +37,11 @@ func TestLoadDefaults(t *testing.T) {
 	if !c.AllowImageURLs || c.AllowPrivateImageURLs || c.StrictModels {
 		t.Fatalf("flags %+v", c)
 	}
-	if c.ClaudeHome != filepath.Join(c.DataDir, "claude-home") || !filepath.IsAbs(c.DataDir) {
+	if !filepath.IsAbs(c.DataDir) || c.ClaudeBin != "claude" || c.CursorBin != "cursor-agent" {
 		t.Fatalf("paths %+v", c)
+	}
+	if c.CursorDefaultModel != "auto" || strings.Join(c.CursorModels, ",") != "auto" {
+		t.Fatalf("cursor defaults %+v", c)
 	}
 }
 
@@ -49,8 +52,9 @@ func TestLoadOverrides(t *testing.T) {
 		"MODELS": " opus , haiku ,", "MODEL_ALIASES": "gpt-4o=sonnet, gpt-4o-mini = haiku",
 		"STRICT_MODELS": "yes", "DEFAULT_EFFORT": "LOW", "MAX_CONCURRENT": "4",
 		"QUEUE_TIMEOUT": "30", "REQUEST_TIMEOUT": "90s", "MAX_BODY_MB": "5",
-		"ALLOW_IMAGE_URLS": "off", "ALLOW_PRIVATE_IMAGE_URLS": "1", "CLAUDE_CODE_OAUTH_TOKEN": " tok ",
-		"LOG_LEVEL": "DEBUG", "DATA_DIR": t.TempDir(),
+		"ALLOW_IMAGE_URLS": "off", "ALLOW_PRIVATE_IMAGE_URLS": "1",
+		"LOG_LEVEL": "DEBUG", "DATA_DIR": t.TempDir(), "CLAUDE_BIN": "./bin/fakeclaude", "CURSOR_BIN": "/opt/cursor/agent",
+		"CURSOR_MODELS": "auto, gpt-5", "CURSOR_DEFAULT_MODEL": "gpt-5",
 	})
 	c, err := Load()
 	if err != nil {
@@ -65,8 +69,15 @@ func TestLoadOverrides(t *testing.T) {
 	if c.DefaultEffort != "low" || c.MaxConcurrent != 4 || c.QueueTimeout != 30*time.Second || c.RequestTimeout != 90*time.Second {
 		t.Fatalf("%+v", c)
 	}
-	if c.MaxBodyBytes != 5<<20 || c.AllowImageURLs || !c.AllowPrivateImageURLs || c.EnvToken != "tok" || c.LogLevel != "debug" {
+	if c.MaxBodyBytes != 5<<20 || c.AllowImageURLs || !c.AllowPrivateImageURLs || c.LogLevel != "debug" {
 		t.Fatalf("%+v", c)
+	}
+	// Relative binary paths are made absolute because the CLIs run elsewhere.
+	if !filepath.IsAbs(c.ClaudeBin) || !strings.HasSuffix(c.ClaudeBin, "/bin/fakeclaude") || c.CursorBin != "/opt/cursor/agent" {
+		t.Fatalf("bins %q %q", c.ClaudeBin, c.CursorBin)
+	}
+	if strings.Join(c.CursorModels, ",") != "auto,gpt-5" || c.CursorDefaultModel != "gpt-5" {
+		t.Fatalf("cursor %+v", c)
 	}
 }
 
@@ -94,28 +105,16 @@ func TestLoadValidation(t *testing.T) {
 	}
 }
 
-func TestResolveModel(t *testing.T) {
-	c := &Config{DefaultModel: "sonnet", Models: []string{"opus", "sonnet", "haiku"}, ModelAliases: map[string]string{"gpt-4o": "opus"}}
-	cases := map[string]string{
-		"":                  "sonnet",
-		"haiku":             "haiku",
-		"gpt-4o":            "opus",
-		"claude-some-model": "claude-some-model",
-		"fable":             "fable",
-		"sonnet[1m]":        "sonnet[1m]",
-		"gpt-4o-mini":       "sonnet",
-	}
-	for in, want := range cases {
-		if got, ok := c.ResolveModel(in); !ok || got != want {
-			t.Errorf("ResolveModel(%q) = %q, %v; want %q", in, got, ok, want)
+func TestOwnEnvVarsIncludeCredentials(t *testing.T) {
+	// Credentials are passed per subscription, never inherited by every CLI.
+	for _, k := range []string{"ADMIN_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY", "ANTHROPIC_API_KEY"} {
+		found := false
+		for _, v := range OwnEnvVars {
+			found = found || v == k
 		}
-	}
-	c.StrictModels = true
-	if _, ok := c.ResolveModel("gpt-4o-mini"); ok {
-		t.Error("strict mode should reject unknown models")
-	}
-	if got, ok := c.ResolveModel("gpt-4o"); !ok || got != "opus" {
-		t.Error("strict mode should keep aliases")
+		if !found {
+			t.Errorf("%s is not in OwnEnvVars", k)
+		}
 	}
 }
 

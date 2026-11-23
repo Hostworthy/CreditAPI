@@ -1,0 +1,19 @@
+meta {
+  name: Delete key
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/admin/api/keys/{{keyId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}

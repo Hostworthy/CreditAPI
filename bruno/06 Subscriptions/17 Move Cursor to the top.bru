@@ -1,0 +1,31 @@
+meta {
+  name: Move Cursor to the top
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/admin/api/subscriptions/{{cursorId}}/move
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "direction": "up"
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("Cursor is first", function () {
+    expect(res.body.subscriptions[0].id).to.equal(bru.getVar("cursorId"));
+  });
+}

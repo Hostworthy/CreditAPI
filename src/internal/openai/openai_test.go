@@ -20,14 +20,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent"
+	"github.com/atb00ker/CreditAPI/src/internal/agent/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent/cursor"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
 	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakes"
 )
 
 func TestMain(m *testing.M) {
-	fakeclaude.MaybeRun()
+	fakes.MaybeRun()
 	os.Exit(m.Run())
 }
 
@@ -40,6 +44,8 @@ func testConfig() *config.Config {
 	}
 }
 
+// testHandler returns a handler whose only subscription ("Claude") runs the
+// fake CLI in the given scenario, a key that may use it and the record path.
 func testHandler(t *testing.T, scenario string) (*Handler, string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -47,22 +53,33 @@ func testHandler(t *testing.T, scenario string) (*Handler, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, secret, err := ks.Create("test")
+	k, secret, err := ks.Create("test")
 	if err != nil {
+		t.Fatal(err)
+	}
+	store, _, err := subscriptions.OpenStore(filepath.Join(dir, "subscriptions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("Claude", "claude", []string{k.ID}, "OPENAI_TEST_TOKEN"); err != nil {
 		t.Fatal(err)
 	}
 	exe, _ := os.Executable()
 	record := filepath.Join(dir, "record.json")
-	bridge, err := claude.NewBridge()
+	bridge, err := agent.NewBridge()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := claude.NewRunner(2)
-	r.Bin, r.WorkDir, r.Bridge, r.Status = exe, dir, bridge, &claude.Status{}
-	r.Env = func() []string {
-		return append(os.Environ(), fakeclaude.EnvScenario+"="+scenario, fakeclaude.EnvRecord+"="+record)
-	}
-	return NewHandler(testConfig(), ks, r), secret, record
+	t.Cleanup(func() { _ = bridge.Close() })
+	t.Setenv(fakeclaude.EnvScenario, scenario)
+	t.Setenv(fakeclaude.EnvRecord, record)
+	t.Setenv("OPENAI_TEST_TOKEN", "tok")
+	cfg := testConfig()
+	subs := subscriptions.NewManager(dir, store, &agent.EnvBuilder{},
+		subscriptions.Routing{Aliases: cfg.ModelAliases, Strict: cfg.StrictModels},
+		&claude.Backend{Bin: exe, WorkDir: dir, Bridge: bridge, Default: cfg.DefaultModel, List: cfg.Models},
+		&cursor.Backend{Bin: "/bin/false", Default: "auto", List: []string{"auto"}})
+	return NewHandler(cfg, ks, subs, agent.NewSlots(cfg.MaxConcurrent)), secret, record
 }
 
 func pngDataURL(t *testing.T, w, h int) string {
@@ -163,7 +180,7 @@ func TestBuildToolsAndChoice(t *testing.T) {
 		t.Fatal("none should drop tools")
 	}
 	long := strings.Repeat("x", 80)
-	if n := claudeToolName(long); len(n)+len(claude.BridgeToolPrefix) > 64 {
+	if n := claudeToolName(long); len(n)+len(agent.BridgeToolPrefix) > 64 {
 		t.Fatalf("name too long: %d", len(n))
 	}
 }
@@ -349,7 +366,7 @@ func TestHTTPAuthAndModels(t *testing.T) {
 	}
 	_ = json.NewDecoder(res.Body).Decode(&models)
 	res.Body.Close()
-	if len(models.Data) != 4 || models.Data[0].ID != "sonnet" {
+	if len(models.Data) != 7 || models.Data[0].ID != "sonnet" || models.Data[6].ID != "claude/haiku" {
 		t.Fatalf("models %+v", models)
 	}
 }
@@ -530,10 +547,11 @@ func TestHTTPAuthErrorAndStop(t *testing.T) {
 		"messages": []map[string]any{{"role": "user", "content": "hi"}},
 	})
 	e := out["error"].(map[string]any)
-	if resp.StatusCode != 401 || e["code"] != "claude_login_required" || e["type"] != "authentication_error" {
+	if resp.StatusCode != 401 || e["code"] != "subscription_login_required" || e["type"] != "authentication_error" {
 		t.Fatalf("status %d %v", resp.StatusCode, out)
 	}
-	if want := srv.URL + "/login"; !strings.Contains(e["message"].(string), want) {
+	if want := srv.URL + "/login?subscription="; !strings.Contains(e["message"].(string), want) ||
+		!strings.HasPrefix(e["message"].(string), "Sign-in required: Claude is signed out") {
 		t.Fatalf("message should link to %s: %v", want, e["message"])
 	}
 
@@ -579,7 +597,7 @@ func TestStreamLoginRequired(t *testing.T) {
 	}
 	last := events[len(events)-1]
 	e, ok := last["error"].(map[string]any)
-	if !ok || e["code"] != "claude_login_required" || !strings.Contains(e["message"].(string), "/login") {
+	if !ok || e["code"] != "subscription_login_required" || !strings.Contains(e["message"].(string), "/login?subscription=") {
 		t.Fatalf("last event %v", last)
 	}
 }

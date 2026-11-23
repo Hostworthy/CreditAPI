@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Headless end-to-end run: the real server with the fake Claude CLI, exercised
+# Headless end-to-end run: the real server with the fake Claude and Cursor CLIs, exercised
 # by the Bruno collection. Used by `make e2e-ci` and CI.
 #
 #   BRU      command that runs the Bruno CLI (default: npx @usebruno/cli@4)
@@ -15,6 +15,7 @@ PORT="${PORT:-18180}"
 
 go build -o bin/creditapi ./src/cmd/creditapi
 go build -o bin/fakeclaude ./src/cmd/fakeclaude
+go build -o bin/fakecursor ./src/cmd/fakecursor
 
 DATA_DIR="$(mktemp -d)"
 LOG="$DATA_DIR/server.log"
