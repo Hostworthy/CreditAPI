@@ -1,0 +1,33 @@
+meta {
+  name: Limit the key to Cursor
+  type: http
+  seq: 20
+}
+
+patch {
+  url: {{baseUrl}}/admin/api/keys/{{keyId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:pre-request {
+  req.setBody({ subscriptions: [bru.getVar("cursorId")] });
+}
+
+tests {
+  test("the key lists only Cursor", function () {
+    expect(res.body.key.subscriptions).to.deep.equal([bru.getVar("cursorId")]);
+  });
+}

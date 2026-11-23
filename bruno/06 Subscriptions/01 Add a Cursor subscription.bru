@@ -1,0 +1,40 @@
+meta {
+  name: Add a Cursor subscription
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/admin/api/subscriptions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 201
+}
+
+script:pre-request {
+  req.setBody({ name: "Bruno Cursor", provider: "cursor", keys: [bru.getVar("keyId")] });
+}
+
+script:post-response {
+  bru.setVar("cursorId", res.body.id);
+}
+
+tests {
+  test("created with a slug for pinning", function () {
+    expect(res.body.slug).to.equal("bruno-cursor");
+    expect(res.body.provider_label).to.equal("Cursor");
+    expect(res.body.keys).to.deep.equal([bru.getVar("keyId")]);
+    expect(res.body.credential.name).to.equal("CURSOR_API_KEY");
+  });
+}

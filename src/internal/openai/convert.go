@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent"
 )
 
 // requestError is a client error (HTTP 400).
@@ -27,7 +27,7 @@ var invalidToolChars = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 // (including the mcp__oai__ prefix staying within 64 characters).
 func claudeToolName(name string) string {
 	s := invalidToolChars.ReplaceAllString(name, "_")
-	const maxLen = 64 - len(claude.BridgeToolPrefix)
+	const maxLen = 64 - len(agent.BridgeToolPrefix)
 	if len(s) > maxLen {
 		sum := sha256.Sum256([]byte(name))
 		s = s[:maxLen-9] + "_" + hex.EncodeToString(sum[:])[:8]
@@ -84,7 +84,7 @@ func parseToolChoice(raw json.RawMessage, legacy json.RawMessage) toolChoice {
 }
 
 // buildTools converts OpenAI tools into bridged MCP tools.
-func buildTools(req *ChatRequest, tc toolChoice) ([]claude.Tool, map[string]string, error) {
+func buildTools(req *ChatRequest, tc toolChoice) ([]agent.Tool, map[string]string, error) {
 	defs := make([]FunctionDef, 0, len(req.Tools)+len(req.Functions))
 	for _, t := range req.Tools {
 		if t.Type != "" && t.Type != "function" {
@@ -97,7 +97,7 @@ func buildTools(req *ChatRequest, tc toolChoice) ([]claude.Tool, map[string]stri
 		return nil, nil, nil
 	}
 
-	var tools []claude.Tool
+	var tools []agent.Tool
 	names := map[string]string{}
 	for _, d := range defs {
 		if d.Name == "" {
@@ -115,7 +115,7 @@ func buildTools(req *ChatRequest, tc toolChoice) ([]claude.Tool, map[string]stri
 			return nil, nil, badRequest("tool names %q and %q collide after sanitizing", prev, d.Name)
 		}
 		names[cn] = d.Name
-		tools = append(tools, claude.Tool{Name: cn, Description: d.Description, InputSchema: schema})
+		tools = append(tools, agent.Tool{Name: cn, Description: d.Description, InputSchema: schema})
 	}
 	if tc.mode == "function" && len(tools) == 0 {
 		return nil, nil, badRequest("tool_choice names function %q, which is not in tools", tc.name)
@@ -147,32 +147,33 @@ func normalizeSchema(raw json.RawMessage) (json.RawMessage, error) {
 
 // conversion holds the outcome of translating a chat request.
 type conversion struct {
-	system  string
-	content []claude.ContentBlock
-	images  int
+	system     string
+	content    []agent.ContentBlock
+	images     int
+	transcript bool
 }
 
 // contentBuilder accumulates text and image blocks, merging adjacent text.
 type contentBuilder struct {
-	blocks []claude.ContentBlock
+	blocks []agent.ContentBlock
 	text   strings.Builder
 }
 
 func (b *contentBuilder) writeText(s string) { b.text.WriteString(s) }
 
-func (b *contentBuilder) addImage(img claude.ContentBlock) {
+func (b *contentBuilder) addImage(img agent.ContentBlock) {
 	b.flush()
 	b.blocks = append(b.blocks, img)
 }
 
 func (b *contentBuilder) flush() {
 	if b.text.Len() > 0 {
-		b.blocks = append(b.blocks, claude.ContentBlock{Type: "text", Text: b.text.String()})
+		b.blocks = append(b.blocks, agent.ContentBlock{Type: "text", Text: b.text.String()})
 		b.text.Reset()
 	}
 }
 
-func (b *contentBuilder) done() []claude.ContentBlock {
+func (b *contentBuilder) done() []agent.ContentBlock {
 	b.flush()
 	return b.blocks
 }
@@ -269,6 +270,7 @@ func (h *Handler) convertMessages(ctx context.Context, msgs []Message, hasTools 
 	}
 
 	// Transcript mode. Remember tool names so results can be labelled.
+	out.transcript = true
 	toolNames := map[string]string{}
 	for _, m := range conv {
 		for _, tc := range m.ToolCalls {
@@ -343,7 +345,7 @@ func (h *Handler) convertMessages(ctx context.Context, msgs []Message, hasTools 
 }
 
 // systemPrompt assembles the final system prompt.
-func (h *Handler) systemPrompt(base string, tools []claude.Tool, tc toolChoice, jsonObject bool) string {
+func (h *Handler) systemPrompt(base string, tools []agent.Tool, tc toolChoice, jsonObject bool) string {
 	if strings.TrimSpace(base) == "" {
 		base = h.cfg.DefaultSystemPrompt
 	}

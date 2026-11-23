@@ -1,0 +1,102 @@
+meta {
+  name: Tool call
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "add_task",
+          "description": "Add a task to the to-do list",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "title"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "hours": {
+                "type": "number"
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_agenda",
+          "description": "Calendar events for a day",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a planning assistant. Use tools to manage tasks."
+      },
+      {
+        "role": "user",
+        "content": "Add a task to renew my passport, please."
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("toolMessage", JSON.stringify(res.body.choices[0].message));
+}
+
+tests {
+  const choice = res.body.choices[0];
+  const call = choice.message.tool_calls[0];
+  test("finish_reason is tool_calls", function () {
+    expect(choice.finish_reason).to.equal("tool_calls");
+    expect(choice.message.tool_calls).to.have.length(1);
+  });
+  test("calls add_task with schema-shaped arguments", function () {
+    expect(call.type).to.equal("function");
+    expect(call.id).to.match(/^call_/);
+    expect(call.function.name).to.equal("add_task");
+    expect(JSON.parse(call.function.arguments)).to.deep.equal({ title: "fake title", hours: 42, priority: "low" });
+  });
+}

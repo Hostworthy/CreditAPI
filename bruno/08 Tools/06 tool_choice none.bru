@@ -1,0 +1,86 @@
+meta {
+  name: tool_choice none
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "add_task",
+          "description": "Add a task to the to-do list",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "title"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "hours": {
+                "type": "number"
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "normal",
+                  "high",
+                  "urgent"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_agenda",
+          "description": "Calendar events for a day",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "tool_choice": "none",
+    "messages": [
+      {
+        "role": "user",
+        "content": "just chat"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("plain text answer", function () {
+    expect(res.body.choices[0].finish_reason).to.equal("stop");
+    expect(res.body.choices[0].message.content).to.equal("Fake reply to: just chat");
+  });
+}

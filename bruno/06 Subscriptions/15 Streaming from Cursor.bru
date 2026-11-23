@@ -1,0 +1,47 @@
+meta {
+  name: Streaming from Cursor
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "bruno-cursor/auto",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Stream from Cursor"
+      }
+    ],
+    "stream": true
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  function sse(res) {
+    const raw = typeof res.body === "string" ? res.body : JSON.stringify(res.body);
+    const data = raw.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6));
+    return { done: data.includes("[DONE]"), chunks: data.filter((d) => d !== "[DONE]").map((d) => JSON.parse(d)) };
+  }
+
+  const { done, chunks } = sse(res);
+  test("chunks assemble the reply once", function () {
+    expect(done).to.equal(true);
+    const text = chunks.flatMap((c) => c.choices).map((c) => (c.delta && c.delta.content) || "").join("");
+    expect(text).to.equal("Fake reply to: Stream from Cursor");
+  });
+}

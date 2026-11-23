@@ -1,0 +1,37 @@
+meta {
+  name: Claude model goes to Claude
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:whoami]"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("answered by the expected subscription", function () {
+    expect(res.body.choices[0].message.content).to.equal("Served by " + ("claudeId" === "cursorId" ? "cursor" : "claude") + " subscription " + bru.getVar("claudeId"));
+  });
+}

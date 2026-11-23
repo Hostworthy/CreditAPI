@@ -19,8 +19,9 @@ assert {
 }
 
 tests {
-  test("reports ok", function () {
+  test("reports ok and each subscription", function () {
     expect(res.body.ok).to.equal(true);
+    expect(res.body.subscriptions).to.be.an("array");
   });
   test("echoes the request id", function () {
     expect(res.headers["x-request-id"]).to.equal("bruno-health-check");

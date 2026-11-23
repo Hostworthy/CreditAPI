@@ -23,7 +23,7 @@ import (
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // register decoder
 
-	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent"
 )
 
 const (
@@ -84,18 +84,18 @@ func isPublicIP(ip net.IP) bool {
 }
 
 // Load converts one image reference into a Claude image block.
-func (p *ImageProcessor) Load(ctx context.Context, ref string) (claude.ContentBlock, error) {
+func (p *ImageProcessor) Load(ctx context.Context, ref string) (agent.ContentBlock, error) {
 	data, err := p.fetch(ctx, strings.TrimSpace(ref))
 	if err != nil {
-		return claude.ContentBlock{}, err
+		return agent.ContentBlock{}, err
 	}
 	data, mediaType, err := p.normalize(data)
 	if err != nil {
-		return claude.ContentBlock{}, err
+		return agent.ContentBlock{}, err
 	}
-	return claude.ContentBlock{
+	return agent.ContentBlock{
 		Type:   "image",
-		Source: &claude.ImageSource{Type: "base64", MediaType: mediaType, Data: base64.StdEncoding.EncodeToString(data)},
+		Source: &agent.ImageSource{Type: "base64", MediaType: mediaType, Data: base64.StdEncoding.EncodeToString(data)},
 	}, nil
 }
 

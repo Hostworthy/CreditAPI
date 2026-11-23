@@ -1,0 +1,25 @@
+meta {
+  name: Cancel any running sign-in
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/admin/api/subscriptions/{{claudeId}}/login
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("no sign-in is running", function () {
+    expect(res.body.state).to.equal("idle");
+  });
+}

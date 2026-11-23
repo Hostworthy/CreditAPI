@@ -1,0 +1,65 @@
+meta {
+  name: JSON schema
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Read this receipt"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "receipt",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "tax",
+            "merchant"
+          ],
+          "properties": {
+            "total": {
+              "type": "number"
+            },
+            "tax": {
+              "type": "number"
+            },
+            "merchant": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("content is JSON matching the schema", function () {
+    const v = JSON.parse(res.body.choices[0].message.content);
+    expect(v).to.deep.equal({ total: 42, tax: 42, merchant: "fake merchant" });
+  });
+}

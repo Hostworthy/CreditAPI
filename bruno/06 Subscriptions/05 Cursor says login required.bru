@@ -1,0 +1,39 @@
+meta {
+  name: Cursor says login required
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "bruno-cursor/auto",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:whoami]"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 401
+}
+
+tests {
+  test("names the Cursor subscription and links to its login page", function () {
+    expect(res.body.error.code).to.equal("subscription_login_required");
+    expect(res.body.error.message).to.contain("Bruno Cursor is signed out");
+    expect(res.body.error.message).to.contain("/login?subscription=" + bru.getVar("cursorId"));
+  });
+}

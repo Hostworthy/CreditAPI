@@ -12,16 +12,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent"
+	"github.com/atb00ker/CreditAPI/src/internal/agent/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent/cursor"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
 	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakes"
 )
 
 const pw = "correct horse battery"
 
 func TestMain(m *testing.M) {
-	fakeclaude.MaybeRun()
+	fakes.MaybeRun()
 	os.Exit(m.Run())
 }
 
@@ -29,22 +33,36 @@ func newServer(t *testing.T) *httptest.Server {
 	return newServerWith(t, "text")
 }
 
+// newServerWith serves the admin routes with one "Claude" subscription
+// whose CLI is the fake in the given scenario.
 func newServerWith(t *testing.T, scenario string) *httptest.Server {
 	t.Helper()
+	srv, _ := newAdmin(t, scenario)
+	return srv
+}
+
+func newAdmin(t *testing.T, scenario string) (*httptest.Server, *subscriptions.Manager) {
+	t.Helper()
 	dir := t.TempDir()
+	t.Setenv(fakeclaude.EnvScenario, scenario)
+	t.Setenv("ADMIN_TEST_TOKEN", "tok")
 	cfg := &config.Config{DataDir: dir, AdminPassword: pw, DefaultModel: "sonnet", Models: []string{"sonnet"}, MaxConcurrent: 1}
 	ks, err := keys.Open(filepath.Join(dir, "keys.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens := claude.NewTokenStore(filepath.Join(dir, "tok"), "")
+	store, _, err := subscriptions.OpenStore(filepath.Join(dir, "subscriptions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("Claude", "claude", nil, "ADMIN_TEST_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
 	exe, _ := os.Executable()
-	runner := claude.NewRunner(1)
-	runner.Status = &claude.Status{}
-	runner.Bin, runner.WorkDir, runner.Tokens = exe, dir, tokens
-	runner.Env = func() []string { return append(os.Environ(), fakeclaude.EnvScenario+"="+scenario) }
-	login := claude.NewLoginManager("false", func() []string { return nil }, tokens)
-	a, err := New(cfg, ks, tokens, login, runner, runner.Status)
+	subs := subscriptions.NewManager(dir, store, &agent.EnvBuilder{}, subscriptions.Routing{},
+		&claude.Backend{Bin: exe, WorkDir: dir, Default: "sonnet", List: []string{"sonnet", "haiku"}},
+		&cursor.Backend{Bin: "/bin/false", Default: "auto", List: []string{"auto"}})
+	a, err := New(cfg, ks, subs, agent.NewSlots(1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +70,7 @@ func newServerWith(t *testing.T, scenario string) *httptest.Server {
 	a.Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, subs
 }
 
 func call(t *testing.T, c *http.Client, method, url string, body any, hdr map[string]string) (int, map[string]any) {
@@ -114,10 +132,13 @@ func TestSessionAndKeys(t *testing.T) {
 	}
 
 	// Bearer admin password works without a cookie.
-	if code, _ := call(t, http.DefaultClient, "GET", srv.URL+"/admin/api/claude", nil, map[string]string{"Authorization": "Bearer " + pw}); code != 200 {
+	bearer := map[string]string{"Authorization": "Bearer " + pw}
+	code, out = call(t, http.DefaultClient, "GET", srv.URL+"/admin/api/subscriptions", nil, bearer)
+	if code != 200 {
 		t.Fatalf("bearer: %d", code)
 	}
-	if code, _ := call(t, http.DefaultClient, "PUT", srv.URL+"/admin/api/claude/token", map[string]string{"token": "bad"}, map[string]string{"Authorization": "Bearer " + pw}); code != 400 {
+	subID := out["subscriptions"].([]any)[0].(map[string]any)["id"].(string)
+	if code, _ := call(t, http.DefaultClient, "PUT", srv.URL+"/admin/api/subscriptions/"+subID+"/credential", map[string]string{"token": "bad"}, bearer); code != 400 {
 		t.Fatalf("bad token should be rejected: %d", code)
 	}
 
@@ -161,34 +182,129 @@ func TestLimiter(t *testing.T) {
 	}
 }
 
+func firstSubscription(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	_, out := call(t, http.DefaultClient, "GET", srv.URL+"/admin/api/subscriptions", nil, map[string]string{"Authorization": "Bearer " + pw})
+	return out["subscriptions"].([]any)[0].(map[string]any)["id"].(string)
+}
+
 func TestLoginCheck(t *testing.T) {
 	srv := newServerWith(t, "text")
 	bearer := map[string]string{"Authorization": "Bearer " + pw}
-	_, out := call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	base := srv.URL + "/admin/api/subscriptions/" + firstSubscription(t, srv)
+	_, out := call(t, http.DefaultClient, "POST", base+"/check", map[string]any{}, bearer)
 	if out["state"] != "valid" || out["cached"] != false || out["reply"] != "Hello world" {
 		t.Fatalf("first check %v", out)
 	}
-	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	_, out = call(t, http.DefaultClient, "POST", base+"/check", map[string]any{}, bearer)
 	if out["state"] != "valid" || out["cached"] != true {
 		t.Fatalf("second check should reuse the result: %v", out)
 	}
-	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{"force": true}, bearer)
+	_, out = call(t, http.DefaultClient, "POST", base+"/check", map[string]any{"force": true}, bearer)
 	if out["cached"] != false {
 		t.Fatalf("forced check %v", out)
 	}
-	_, out = call(t, http.DefaultClient, "GET", srv.URL+"/admin/api/claude", nil, bearer)
-	if out["auth"].(map[string]any)["state"] != "valid" {
+	_, out = call(t, http.DefaultClient, "GET", base, nil, bearer)
+	if out["auth"].(map[string]any)["state"] != "valid" || out["credential"].(map[string]any)["source"] != "env" {
 		t.Fatalf("status %v", out)
+	}
+	if code, _ := call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/subscriptions/missing/check", map[string]any{}, bearer); code != 404 {
+		t.Fatalf("unknown subscription: %d", code)
 	}
 
 	srv = newServerWith(t, "auth")
-	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	base = srv.URL + "/admin/api/subscriptions/" + firstSubscription(t, srv)
+	_, out = call(t, http.DefaultClient, "POST", base+"/check", map[string]any{}, bearer)
 	if out["state"] != "login_required" {
 		t.Fatalf("auth check %v", out)
 	}
 	// Checks always re-test, even right after a failure.
-	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	_, out = call(t, http.DefaultClient, "POST", base+"/check", map[string]any{}, bearer)
 	if out["state"] != "login_required" || out["cached"] != false {
 		t.Fatalf("repeat auth check %v", out)
+	}
+}
+
+func TestSubscriptionsAPI(t *testing.T) {
+	srv, subs := newAdmin(t, "text")
+	bearer := map[string]string{"Authorization": "Bearer " + pw}
+	api := srv.URL + "/admin/api"
+
+	_, out := call(t, http.DefaultClient, "POST", api+"/keys", map[string]any{"name": "k1"}, bearer)
+	k1 := out["key"].(map[string]any)["id"].(string)
+	if grants := out["key"].(map[string]any)["subscriptions"].([]any); len(grants) != 1 {
+		t.Fatalf("a new key may use every subscription by default: %v", out)
+	}
+
+	code, out := call(t, http.DefaultClient, "POST", api+"/subscriptions", map[string]any{"name": "Cursor (Personal)", "provider": "Cursor", "keys": []string{k1}}, bearer)
+	if code != 201 || out["slug"] != "cursor-personal" || out["provider_label"] != "Cursor" || out["priority"] != float64(1) {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	cur := out["id"].(string)
+	for _, bad := range []map[string]any{
+		{"name": "X", "provider": "gemini"},
+		{"name": "", "provider": "claude"},
+		{"name": "cursor personal", "provider": "claude"},
+		{"name": "Y", "provider": "claude", "keys": []string{"no-such-key"}},
+	} {
+		if code, _ := call(t, http.DefaultClient, "POST", api+"/subscriptions", bad, bearer); code != 400 {
+			t.Errorf("create %v: %d", bad, code)
+		}
+	}
+
+	_, out = call(t, http.DefaultClient, "GET", api+"/subscriptions", nil, bearer)
+	if len(out["subscriptions"].([]any)) != 2 || len(out["providers"].([]any)) != 2 {
+		t.Fatalf("list %v", out)
+	}
+
+	// Key grants can be set from either side.
+	_, out = call(t, http.DefaultClient, "PATCH", api+"/keys/"+k1, map[string]any{"subscriptions": []string{cur}}, bearer)
+	if grants := out["key"].(map[string]any)["subscriptions"].([]any); len(grants) != 1 || grants[0] != cur {
+		t.Fatalf("key grants %v", out)
+	}
+	if code, _ := call(t, http.DefaultClient, "PATCH", api+"/keys/"+k1, map[string]any{"subscriptions": []string{"missing"}}, bearer); code != 400 {
+		t.Fatalf("unknown subscription grant: %d", code)
+	}
+	code, out = call(t, http.DefaultClient, "PATCH", api+"/subscriptions/"+cur, map[string]any{"name": "Cursor (Work)", "disabled": true, "keys": []string{}}, bearer)
+	if code != 200 || out["name"] != "Cursor (Work)" || out["disabled"] != true || len(out["keys"].([]any)) != 0 {
+		t.Fatalf("update: %d %v", code, out)
+	}
+	if code, _ := call(t, http.DefaultClient, "PATCH", api+"/subscriptions/"+cur, map[string]any{"keys": []string{"nope"}}, bearer); code != 400 {
+		t.Fatalf("unknown key: %d", code)
+	}
+
+	code, out = call(t, http.DefaultClient, "POST", api+"/subscriptions/"+cur+"/move", map[string]any{"direction": "up"}, bearer)
+	if code != 200 || out["subscriptions"].([]any)[0].(map[string]any)["id"] != cur {
+		t.Fatalf("move: %d %v", code, out)
+	}
+	if code, _ := call(t, http.DefaultClient, "POST", api+"/subscriptions/"+cur+"/move", map[string]any{"direction": "sideways"}, bearer); code != 400 {
+		t.Fatalf("bad direction: %d", code)
+	}
+
+	// Credentials: validated per provider, shown only as a hint.
+	if code, _ := call(t, http.DefaultClient, "PUT", api+"/subscriptions/"+cur+"/credential", map[string]any{"credential": "short"}, bearer); code != 400 {
+		t.Fatalf("short key: %d", code)
+	}
+	key := "crsr_0123456789abcdefghijklmnopqrstuvwxyz"
+	code, out = call(t, http.DefaultClient, "PUT", api+"/subscriptions/"+cur+"/credential", map[string]any{"credential": key}, bearer)
+	cred := out["credential"].(map[string]any)
+	if code != 200 || cred["source"] != "login" || cred["name"] != "CURSOR_API_KEY" || strings.Contains(cred["hint"].(string), key) {
+		t.Fatalf("credential: %d %v", code, out)
+	}
+
+	// Deleting a key removes its grants; deleting a subscription its files.
+	call(t, http.DefaultClient, "PATCH", api+"/subscriptions/"+cur, map[string]any{"keys": []string{k1}}, bearer)
+	call(t, http.DefaultClient, "DELETE", api+"/keys/"+k1, nil, bearer)
+	if sub, _ := subs.Store.Get(cur); len(sub.Keys) != 0 {
+		t.Fatalf("grants left after key deletion: %v", sub.Keys)
+	}
+	if code, _ := call(t, http.DefaultClient, "DELETE", api+"/subscriptions/"+cur, nil, bearer); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	if code, _ := call(t, http.DefaultClient, "GET", api+"/subscriptions/"+cur, nil, bearer); code != 404 {
+		t.Fatalf("get deleted: %d", code)
+	}
+	if code, _ := call(t, http.DefaultClient, "DELETE", api+"/subscriptions/"+cur, nil, bearer); code != 404 {
+		t.Fatalf("delete twice: %d", code)
 	}
 }

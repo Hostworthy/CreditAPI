@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/admin/api/claude
+  url: {{baseUrl}}/admin/api/subscriptions/{{claudeId}}
   body: none
   auth: bearer
 }
@@ -24,7 +24,7 @@ script:pre-request {
   for (let i = 0; i < 40; i++) {
     const r = await bru.sendRequest({
       method: "GET",
-      url: bru.getEnvVar("baseUrl") + "/admin/api/claude",
+      url: bru.getEnvVar("baseUrl") + "/admin/api/subscriptions/" + bru.getVar("claudeId"),
       headers: { Authorization: "Bearer " + bru.getEnvVar("adminPassword") },
     });
     const body = r.data || r.body || {};

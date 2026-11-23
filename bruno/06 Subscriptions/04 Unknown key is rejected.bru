@@ -1,0 +1,29 @@
+meta {
+  name: Unknown key is rejected
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/admin/api/subscriptions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "name": "Bruno Other",
+    "provider": "claude",
+    "keys": [
+      "no-such-key"
+    ]
+  }
+}
+
+assert {
+  res.status: eq 400
+}

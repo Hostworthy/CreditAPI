@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/admin/api/claude
+  url: {{baseUrl}}/admin/api/subscriptions/{{claudeId}}
   body: none
   auth: bearer
 }
@@ -24,7 +24,7 @@ script:pre-request {
   for (let i = 0; i < 40; i++) {
     const r = await bru.sendRequest({
       method: "GET",
-      url: bru.getEnvVar("baseUrl") + "/admin/api/claude",
+      url: bru.getEnvVar("baseUrl") + "/admin/api/subscriptions/" + bru.getVar("claudeId"),
       headers: { Authorization: "Bearer " + bru.getEnvVar("adminPassword") },
     });
     const body = r.data || r.body || {};
@@ -38,9 +38,9 @@ tests {
     expect(res.body.login.state).to.equal("success");
   });
   test("token saved from the login", function () {
-    expect(res.body.token.source).to.equal("login");
-    expect(res.body.token.hint).to.match(/^sk-ant-oat01-fak.*…/);
-    expect(res.body.token.expires_about).to.be.a("string");
+    expect(res.body.credential.source).to.equal("login");
+    expect(res.body.credential.hint).to.match(/^sk-ant-oat01-fak.*…/);
+    expect(res.body.credential.expires_about).to.be.a("string");
   });
   test("full token never shown", function () {
     expect(res.body.login.output).to.not.match(/sk-ant-oat01-fake-[0-9a-f]{20,}/);

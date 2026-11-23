@@ -1,0 +1,47 @@
+meta {
+  name: Conversation history
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "messages": [
+      {
+        "role": "user",
+        "content": "My favourite colour is green"
+      },
+      {
+        "role": "assistant",
+        "content": "Noted."
+      },
+      {
+        "role": "user",
+        "content": "[fake:echo-input] and my favourite number is 7"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  const text = res.body.choices[0].message.content;
+  test("earlier turns are sent as a transcript", function () {
+    expect(text).to.contain("<user>\nMy favourite colour is green\n</user>");
+    expect(text).to.contain("<assistant>\nNoted.\n</assistant>");
+    expect(text).to.contain("Write the assistant's reply to the last user message.");
+  });
+}

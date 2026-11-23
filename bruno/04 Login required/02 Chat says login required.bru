@@ -20,7 +20,7 @@ body:json {
     "messages": [
       {
         "role": "user",
-        "content": "How much protein is in an egg?"
+        "content": "What is the tallest mountain on Earth?"
       }
     ]
   }
@@ -33,9 +33,10 @@ assert {
 tests {
   test("OpenAI authentication_error with our code", function () {
     expect(res.body.error.type).to.equal("authentication_error");
-    expect(res.body.error.code).to.equal("claude_login_required");
+    expect(res.body.error.code).to.equal("subscription_login_required");
   });
-  test("message links to the login page", function () {
-    expect(res.body.error.message).to.contain(bru.getEnvVar("baseUrl") + "/login");
+  test("message names the subscription and links to its login page", function () {
+    expect(res.body.error.message).to.contain(bru.getVar("claudeName") + " is signed out");
+    expect(res.body.error.message).to.contain(bru.getEnvVar("baseUrl") + "/login?subscription=" + bru.getVar("claudeId"));
   });
 }

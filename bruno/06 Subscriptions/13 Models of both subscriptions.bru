@@ -1,0 +1,26 @@
+meta {
+  name: Models of both subscriptions
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/v1/models
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  const ids = res.body.data.map((m) => m.id);
+  test("plain and pinned names", function () {
+    expect(ids).to.include.members(["sonnet", "auto", "gpt-5", "bruno-cursor/auto", bru.getVar("claudeSlug") + "/sonnet"]);
+  });
+}

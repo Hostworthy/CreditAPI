@@ -1,0 +1,25 @@
+meta {
+  name: Disable Cursor
+  type: http
+  seq: 24
+}
+
+patch {
+  url: {{baseUrl}}/admin/api/subscriptions/{{cursorId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "disabled": true
+  }
+}
+
+assert {
+  res.status: eq 200
+}

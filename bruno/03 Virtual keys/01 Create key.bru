@@ -35,4 +35,7 @@ tests {
     expect(res.body.key.name).to.equal("bruno-app");
     expect(res.body.key.hint).to.match(/^sk-credit-.{4}….{4}$/);
   });
+  test("may use every subscription by default", function () {
+    expect(res.body.key.subscriptions).to.include(bru.getVar("claudeId"));
+  });
 }

@@ -1,20 +1,14 @@
 package fakeclaude
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"image"
-	_ "image/gif" // register decoders for image size reports
-	_ "image/jpeg"
-	_ "image/png"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
-	_ "golang.org/x/image/webp"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakecore"
 )
 
 // Auto mode rules, in order:
@@ -28,7 +22,7 @@ import (
 //     [fake:overloaded]   API error 529
 //     [fake:bad-request]  API error 400
 //  3. --json-schema: answer through StructuredOutput with a value generated
-//     from the schema (see SampleFromSchema).
+//     from the schema (see fakecore.SampleFromSchema).
 //  4. Client tools (MCP bridge): when the conversation ends with tool results,
 //     reply "Received N tool result(s): ...". Otherwise call every tool whose
 //     name appears in the text (or the first tool) with generated arguments.
@@ -37,6 +31,7 @@ import (
 //     [fake:echo-system]  reply with the system prompt
 //     [fake:echo-input]   reply with the full user message text
 //     [fake:long]         a reply of about 4000 characters
+//     [fake:whoami]       "Served by claude subscription <id>"
 //  6. Otherwise "Fake reply to: <last user line>", prefixed with a list of
 //     images and their sizes ("I see 1 image(s): image/png 8x8."). When the
 //     system prompt asks for a JSON object the reply is a fenced JSON object.
@@ -53,16 +48,6 @@ const (
 	ExpiredToken = TokenPrefix + "expired-0123456789abcdefghijklmnopqrstuvwxyz"
 )
 
-var directiveRe = regexp.MustCompile(`\[fake:([a-z-]+)\]`)
-
-func directives(text string) map[string]bool {
-	out := map[string]bool{}
-	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {
-		out[m[1]] = true
-	}
-	return out
-}
-
 func runAuto(inv *invocation) int {
 	emitInit(inv)
 	switch {
@@ -77,7 +62,7 @@ func runAuto(inv *invocation) int {
 		return 0
 	}
 
-	d := directives(inv.text)
+	d := fakecore.Directives(inv.text)
 	in := 10 + len(inv.text)/4 + 85*countImages(inv.content)
 	switch {
 	case d["crash"]:
@@ -97,7 +82,7 @@ func runAuto(inv *invocation) int {
 
 	messageStart(inv.model, in)
 	if inv.schema != nil {
-		value := SampleFromSchema(inv.schema, "value")
+		value := fakecore.SampleFromSchema(inv.schema, "value")
 		raw, _ := json.Marshal(value)
 		toolUseBlock(0, "toolu_fake_schema", "StructuredOutput", string(raw))
 		messageEnd("tool_use", in, len(raw)/4+1)
@@ -108,8 +93,8 @@ func runAuto(inv *invocation) int {
 	}
 
 	if len(inv.tools) > 0 {
-		if n := strings.Count(inv.text, "</tool_result>"); n > 0 && endsWithToolResults(inv.text) {
-			reply := fmt.Sprintf("Received %d tool result(s): %s", n, firstToolResult(inv.text))
+		if n := fakecore.ToolResults(inv.text); n > 0 && fakecore.EndsWithToolResults(inv.text) {
+			reply := fmt.Sprintf("Received %d tool result(s): %s", n, fakecore.FirstToolResult(inv.text))
 			return finishText(inv, in, reply, 0)
 		}
 		callTools(inv, in)
@@ -120,20 +105,22 @@ func runAuto(inv *invocation) int {
 	var delay time.Duration
 	switch {
 	case d["slow"]:
-		reply, delay = "one two three STOP four five", 150*time.Millisecond
+		reply, delay = fakecore.SlowReply, 150*time.Millisecond
 	case d["echo-system"]:
 		reply = inv.system
 	case d["echo-input"]:
 		reply = inv.text
 	case d["long"]:
-		reply = strings.Repeat("All work and no play makes a long fake reply. ", 90)
+		reply = fakecore.LongReply()
+	case d["whoami"]:
+		reply = fakecore.Whoami("claude")
 	default:
-		reply = "Fake reply to: " + lastUserLine(inv.text)
+		reply = "Fake reply to: " + fakecore.LastUserLine(inv.text)
 		if desc := describeImages(inv.content); desc != "" {
 			reply = desc + " " + reply
 		}
 		if strings.Contains(inv.system, "single valid JSON object") {
-			obj, _ := json.Marshal(map[string]any{"fake": true, "reply": lastUserLine(inv.text)})
+			obj, _ := json.Marshal(map[string]any{"fake": true, "reply": fakecore.LastUserLine(inv.text)})
 			reply = "```json\n" + string(obj) + "\n```"
 		}
 	}
@@ -153,7 +140,7 @@ func finishText(inv *invocation, in int, reply string, delay time.Duration) int 
 		stop = "max_tokens"
 	}
 	out := len(reply)/4 + 1
-	parts := chunk(reply)
+	parts := fakecore.Chunk(reply)
 	if delay > 0 {
 		parts = strings.SplitAfter(reply, " ") // one word per delta, so it really is slow
 	}
@@ -165,41 +152,19 @@ func finishText(inv *invocation, in int, reply string, delay time.Duration) int 
 }
 
 func callTools(inv *invocation, in int) {
-	var chosen []bridgeTool
-	for _, t := range inv.tools {
-		if strings.Contains(inv.text, t.Name) {
-			chosen = append(chosen, t)
-		}
-	}
-	if len(chosen) == 0 {
-		chosen = inv.tools[:1]
-	}
+	chosen := fakecore.ChooseTools(inv.tools, inv.text)
 	names := make([]string, len(chosen))
 	for i, t := range chosen {
 		names[i] = t.Name
 	}
 	textBlock(0, []string{"Calling ", strings.Join(names, ", "), "."}, 0)
 	for i, t := range chosen {
-		args, _ := json.Marshal(SampleFromSchema(t.InputSchema, t.Name))
+		args, _ := json.Marshal(fakecore.SampleFromSchema(t.InputSchema, t.Name))
 		toolUseBlock(i+1, fmt.Sprintf("toolu_fake_%d", i+1), "mcp__oai__"+t.Name, string(args))
 	}
 	messageEnd("tool_use", in, 20*len(chosen))
 	rateLimitEvent("allowed", 0.1)
 	waitForKill(inv, chosen[0].Name)
-}
-
-// chunk splits a reply into a few streaming deltas.
-func chunk(s string) []string {
-	if s == "" {
-		return []string{""}
-	}
-	words := strings.SplitAfter(s, " ")
-	var parts []string
-	for i := 0; i < len(words); i += 4 {
-		end := min(i+4, len(words))
-		parts = append(parts, strings.Join(words[i:end], ""))
-	}
-	return parts
 }
 
 func countImages(content []block) int {
@@ -213,73 +178,16 @@ func countImages(content []block) int {
 }
 
 func describeImages(content []block) string {
-	var parts []string
+	var items []string
 	for _, b := range content {
 		if b.Type != "image" || b.Source == nil {
 			continue
 		}
 		size := "unreadable"
 		if raw, err := base64.StdEncoding.DecodeString(b.Source.Data); err == nil {
-			if cfg, _, err := image.DecodeConfig(bytes.NewReader(raw)); err == nil {
-				size = fmt.Sprintf("%dx%d", cfg.Width, cfg.Height)
-			}
+			size = fakecore.ImageSize(raw)
 		}
-		parts = append(parts, b.Source.MediaType+" "+size)
+		items = append(items, b.Source.MediaType+" "+size)
 	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("I see %d image(s): %s.", len(parts), strings.Join(parts, ", "))
-}
-
-// lastUserLine returns the first line of the last user turn, whether the
-// input is a single message or a rendered transcript.
-func lastUserLine(text string) string {
-	if i := strings.LastIndex(text, "<user"); i >= 0 {
-		rest := text[i:]
-		if j := strings.Index(rest, ">"); j >= 0 {
-			rest = rest[j+1:]
-		}
-		if k := strings.Index(rest, "</user>"); k >= 0 {
-			rest = rest[:k]
-		}
-		text = rest
-	}
-	for _, l := range strings.Split(text, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			if len(l) > 120 {
-				l = l[:120]
-			}
-			return l
-		}
-	}
-	return "(empty message)"
-}
-
-func endsWithToolResults(text string) bool {
-	last := strings.LastIndex(text, "</tool_result>")
-	return last >= 0 && !strings.Contains(text[last:], "<user")
-}
-
-// firstToolResult returns the body of the first complete <tool_result> block
-// (the transcript's introduction mentions the tag name, so anchor on the
-// closing tag and search backwards for its opening tag).
-func firstToolResult(text string) string {
-	end := strings.Index(text, "</tool_result>")
-	if end < 0 {
-		return ""
-	}
-	start := strings.LastIndex(text[:end], "<tool_result")
-	if start < 0 {
-		return ""
-	}
-	rest := text[start:end]
-	if j := strings.Index(rest, ">"); j >= 0 {
-		rest = rest[j+1:]
-	}
-	rest = strings.TrimSpace(rest)
-	if len(rest) > 200 {
-		rest = rest[:200]
-	}
-	return rest
+	return fakecore.DescribeImages(items)
 }

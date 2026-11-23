@@ -1,0 +1,43 @@
+meta {
+  name: Find the Claude subscription
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/admin/api/subscriptions
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  const subs = res.body.subscriptions;
+  const claude = subs.find((s) => s.provider === "claude" && !s.name.startsWith("Bruno"));
+  bru.setVar("claudeId", claude.id);
+  bru.setVar("claudeSlug", claude.slug);
+  bru.setVar("claudeName", claude.name);
+  for (const s of subs.filter((s) => s.name.startsWith("Bruno"))) {
+    await bru.sendRequest({
+      method: "DELETE",
+      url: bru.getEnvVar("baseUrl") + "/admin/api/subscriptions/" + s.id,
+      headers: { Authorization: "Bearer " + bru.getEnvVar("adminPassword") },
+    });
+  }
+}
+
+tests {
+  test("the first start created a Claude subscription", function () {
+    expect(bru.getVar("claudeId")).to.match(/^[0-9a-f]{12}$/);
+  });
+  test("both providers are available", function () {
+    expect(res.body.providers.map((p) => p.id)).to.deep.equal(["claude", "cursor"]);
+  });
+}

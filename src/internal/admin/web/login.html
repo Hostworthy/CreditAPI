@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="referrer" content="no-referrer">
-<title>CreditAPI · Claude login</title>
+<title>CreditAPI · Sign-in</title>
 <link rel="stylesheet" href="/assets/app.css">
 <script src="/assets/app.js" defer></script>
 </head>
@@ -13,8 +13,8 @@
 <header class="topbar">
   <a class="brand" href="/admin">CreditAPI</a>
   <nav class="nav" data-auth-only hidden>
-    <a href="/admin">Keys</a>
-    <a href="/login" aria-current="page">Claude login</a>
+    <a href="/admin">Admin</a>
+    <a href="/login" aria-current="page">Sign-in</a>
     <button type="button" class="link" data-action="signout">Sign out</button>
   </nav>
 </header>
@@ -22,7 +22,7 @@
 <main class="wrap">
   <section class="card" id="signin" hidden>
     <h1>Admin sign-in</h1>
-    <p class="muted">Sign in with the server's admin password to manage the Claude login.</p>
+    <p class="muted">Sign in with the server's admin password to manage the subscription logins.</p>
     <form id="signin-form" class="stack">
       <label for="password">Admin password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
@@ -32,37 +32,45 @@
   </section>
 
   <div data-auth-only hidden>
-    <section class="card">
-      <h1>Claude subscription</h1>
+    <section class="card" id="no-subscriptions" hidden>
+      <h1>No subscriptions</h1>
+      <p class="muted">Add a Claude or Cursor subscription on the <a href="/admin">admin page</a> first.</p>
+    </section>
+
+    <section class="card" id="sub-card" hidden>
+      <div class="stack">
+        <label for="sub-select">Subscription</label>
+        <select id="sub-select"></select>
+      </div>
       <div id="auth-box" class="status" data-state="checking" role="status" aria-live="polite">
-        <p id="auth-title" class="status-title">Checking your Claude login…</p>
+        <p id="auth-title" class="status-title">Checking the login…</p>
         <p id="auth-detail" class="status-detail"></p>
       </div>
       <p id="token-info" class="muted small-text"></p>
       <div class="row wrap-row">
         <button type="button" data-action="check">Check again</button>
         <button type="button" data-action="start-login" hidden>Sign in again</button>
-        <button type="button" class="danger-outline" data-action="clear-token" hidden>Remove saved login</button>
+        <button type="button" class="danger-outline" data-action="clear-token" hidden>Sign out</button>
       </div>
     </section>
 
     <section class="card" id="flow" hidden>
-      <h2>Sign in to Claude</h2>
+      <h2 id="flow-title">Sign in</h2>
       <p id="flow-state" class="pill"></p>
 
       <ol class="steps big">
         <li>
-          <p>Open the Claude sign-in page (it opens in a new tab) and approve access.</p>
+          <p id="step-open">Open the sign-in page (it opens in a new tab) and approve access.</p>
           <p id="url-wait" class="muted">Preparing the sign-in link…</p>
           <div id="url-box" hidden>
-            <a id="login-link" class="button primary" target="_blank" rel="noopener noreferrer">Open Claude sign-in</a>
+            <a id="login-link" class="button primary" target="_blank" rel="noopener noreferrer">Open sign-in page</a>
             <details>
               <summary>Show the link</summary>
               <div class="row"><code id="login-url" class="grow break"></code><button type="button" class="small" data-copy="#login-url">Copy</button></div>
             </details>
           </div>
         </li>
-        <li>
+        <li id="step-code">
           <p>Claude then shows an authentication code. Copy it, come back to this tab and paste it.</p>
           <form id="code-form" class="stack">
             <label for="code" class="sr-only">Authentication code</label>
@@ -72,6 +80,9 @@
             </div>
             <button type="submit" class="primary">Finish sign-in</button>
           </form>
+        </li>
+        <li id="step-browser" hidden>
+          <p>Come back to this tab. It notices by itself when you have approved the sign-in.</p>
         </li>
       </ol>
       <p class="error" id="flow-error" role="alert"></p>
@@ -85,14 +96,14 @@
       </details>
     </section>
 
-    <section class="card">
+    <section class="card" id="token-card" hidden>
       <details>
-        <summary>Already have a token?</summary>
-        <p class="muted">Run <code>claude setup-token</code> on any computer with a browser and paste the resulting <code>sk-ant-oat01-…</code> token here.</p>
+        <summary id="token-summary">Already have a token?</summary>
+        <p class="muted" id="token-help"></p>
         <form id="token-form" class="stack">
-          <label for="token" class="sr-only">OAuth token</label>
-          <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-oat01-…" required>
-          <button type="submit">Save token</button>
+          <label for="token" class="sr-only" id="token-label">Credential</label>
+          <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" required>
+          <button type="submit">Save</button>
           <p class="error" id="token-error" role="alert"></p>
         </form>
       </details>

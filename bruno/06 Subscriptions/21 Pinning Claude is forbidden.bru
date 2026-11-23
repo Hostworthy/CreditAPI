@@ -1,0 +1,34 @@
+meta {
+  name: Pinning Claude is forbidden
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 403
+}
+
+script:pre-request {
+  req.setBody({ model: bru.getVar("claudeSlug") + "/sonnet", messages: [{ role: "user", content: "hi" }] });
+}
+
+tests {
+  test("permission_error", function () {
+    expect(res.body.error.type).to.equal("permission_error");
+    expect(res.body.error.code).to.equal("no_subscription");
+  });
+}

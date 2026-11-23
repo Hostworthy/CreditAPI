@@ -72,13 +72,13 @@ func TestRedaction(t *testing.T) {
 	log.Info(Event("test", "redact", "checked"),
 		slog.String("token", "sk-ant-oat01-abcdefghijklmnop"),
 		slog.String("Authorization", "Bearer x"),
-		slog.String("prompt", "my private meal log"),
+		slog.String("prompt", "my private notes"),
 		slog.String("note", "key sk-credit-ABCDEFGHIJKL leaked and sk-ant-api03-zzzzzzzzzzzz too, legacy sk-cmta-ABCDEFGHIJKL"),
 		slog.Any("error", errors.New("bad token sk-ant-oat01-qqqqqqqqqqqqqqqq")),
 		slog.Group("req", slog.String("code", "abc#def"), slog.Int("n", 3)),
 	)
 	out := buf.String()
-	for _, secret := range []string{"sk-ant-oat01-abcdefghijklmnop", "Bearer x", "my private meal log", "sk-credit-ABCDEFGHIJKL", "sk-cmta-ABCDEFGHIJKL", "sk-ant-api03-zzzzzzzzzzzz", "sk-ant-oat01-qqqqqqqqqqqqqqqq", "abc#def"} {
+	for _, secret := range []string{"sk-ant-oat01-abcdefghijklmnop", "Bearer x", "my private notes", "sk-credit-ABCDEFGHIJKL", "sk-cmta-ABCDEFGHIJKL", "sk-ant-api03-zzzzzzzzzzzz", "sk-ant-oat01-qqqqqqqqqqqqqqqq", "abc#def"} {
 		if strings.Contains(out, secret) {
 			t.Errorf("secret %q leaked: %s", secret, out)
 		}

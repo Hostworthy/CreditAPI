@@ -34,12 +34,12 @@ func firstChoice(t *testing.T, out map[string]any) (map[string]any, string) {
 func TestChatBasics(t *testing.T) {
 	s, key := signedIn(t, support.Options{})
 
-	resp, out := s.Chat(key, map[string]any{"model": "gpt-4o", "messages": user("How many calories in an apple?")})
+	resp, out := s.Chat(key, map[string]any{"model": "gpt-4o", "messages": user("What is the capital of France?")})
 	if resp.StatusCode != 200 {
 		t.Fatalf("%d %v", resp.StatusCode, out)
 	}
 	msg, finish := firstChoice(t, out)
-	if msg["role"] != "assistant" || msg["content"] != "Fake reply to: How many calories in an apple?" || finish != "stop" {
+	if msg["role"] != "assistant" || msg["content"] != "Fake reply to: What is the capital of France?" || finish != "stop" {
 		t.Fatalf("message %v finish %s", msg, finish)
 	}
 	if out["object"] != "chat.completion" || out["model"] != "gpt-4o" || !strings.HasPrefix(out["id"].(string), "chatcmpl-") {
@@ -64,11 +64,11 @@ func TestSystemPromptAndTranscript(t *testing.T) {
 	}
 
 	_, out = s.Chat(key, map[string]any{"messages": []map[string]any{
-		{"role": "system", "content": "You are a nutrition assistant."},
+		{"role": "system", "content": "You are a concise assistant."},
 		{"role": "developer", "content": "Be brief."},
 		{"role": "user", "content": "[fake:echo-system]"},
 	}})
-	if support.Content(out) != "You are a nutrition assistant.\n\nBe brief." {
+	if support.Content(out) != "You are a concise assistant.\n\nBe brief." {
 		t.Fatalf("joined system prompt: %q", support.Content(out))
 	}
 
@@ -159,7 +159,7 @@ func TestImages(t *testing.T) {
 	}
 
 	resp, _ = s.Chat(key, map[string]any{"messages": []map[string]any{{"role": "user", "content": []map[string]any{
-		{"type": "image_url", "image_url": map[string]any{"url": "http://127.0.0.1:1/food.png"}},
+		{"type": "image_url", "image_url": map[string]any{"url": "http://127.0.0.1:1/photo.png"}},
 	}}}})
 	if resp.StatusCode != 400 {
 		t.Fatalf("private image URL should be refused: %d", resp.StatusCode)
@@ -179,17 +179,17 @@ func TestMaxImages(t *testing.T) {
 	}
 }
 
-var logFood = map[string]any{"type": "function", "function": map[string]any{
-	"name": "log_food", "description": "Log a food entry",
-	"parameters": map[string]any{"type": "object", "required": []string{"food_name"}, "properties": map[string]any{
-		"food_name": map[string]any{"type": "string"},
-		"quantity":  map[string]any{"type": "number"},
-		"meal_type": map[string]any{"type": "string", "enum": []string{"breakfast", "lunch", "dinner"}},
+var addTask = map[string]any{"type": "function", "function": map[string]any{
+	"name": "add_task", "description": "Add a task to the to-do list",
+	"parameters": map[string]any{"type": "object", "required": []string{"title"}, "properties": map[string]any{
+		"title":    map[string]any{"type": "string"},
+		"hours":    map[string]any{"type": "number"},
+		"priority": map[string]any{"type": "string", "enum": []string{"low", "normal", "high"}},
 	}},
 }}
 
-var getSummary = map[string]any{"type": "function", "function": map[string]any{
-	"name": "get_daily_summary",
+var getAgenda = map[string]any{"type": "function", "function": map[string]any{
+	"name": "get_agenda",
 	"parameters": map[string]any{"type": "object", "properties": map[string]any{
 		"date": map[string]any{"type": "string", "format": "date"},
 	}},
@@ -197,10 +197,10 @@ var getSummary = map[string]any{"type": "function", "function": map[string]any{
 
 func TestToolRoundTrip(t *testing.T) {
 	s, key := signedIn(t, support.Options{})
-	tools := []any{logFood, getSummary}
+	tools := []any{addTask, getAgenda}
 
 	start := time.Now()
-	_, out := s.Chat(key, map[string]any{"tools": tools, "messages": user("log 2 eggs for breakfast")})
+	_, out := s.Chat(key, map[string]any{"tools": tools, "messages": user("add a task to renew my passport")})
 	if time.Since(start) > 10*time.Second {
 		t.Fatal("tool call was not returned promptly")
 	}
@@ -215,17 +215,17 @@ func TestToolRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(fn["arguments"].(string)), &args); err != nil {
 		t.Fatal(err)
 	}
-	if fn["name"] != "log_food" || call["type"] != "function" || !strings.HasPrefix(call["id"].(string), "call_") {
+	if fn["name"] != "add_task" || call["type"] != "function" || !strings.HasPrefix(call["id"].(string), "call_") {
 		t.Fatalf("call %v", call)
 	}
-	if args["food_name"] != "fake food name" || args["meal_type"] != "breakfast" || args["quantity"].(float64) != 42 {
+	if args["title"] != "fake title" || args["priority"] != "low" || args["hours"].(float64) != 42 {
 		t.Fatalf("arguments should follow the schema: %v", args)
 	}
 
 	// Round 2: the client ran the tool and sends the result back.
 	assistant := map[string]any{"role": "assistant", "content": nil, "tool_calls": calls}
 	_, out = s.Chat(key, map[string]any{"tools": tools, "messages": []any{
-		map[string]any{"role": "user", "content": "log 2 eggs for breakfast"},
+		map[string]any{"role": "user", "content": "add a task to renew my passport"},
 		assistant,
 		map[string]any{"role": "tool", "tool_call_id": call["id"], "content": `{"ok":true,"entry_id":7}`},
 	}})
@@ -237,25 +237,25 @@ func TestToolRoundTrip(t *testing.T) {
 
 func TestToolChoiceAndParallelCalls(t *testing.T) {
 	s, key := signedIn(t, support.Options{})
-	tools := []any{logFood, getSummary}
+	tools := []any{addTask, getAgenda}
 
 	// Mentioning both tools makes the fake call both (parallel tool calls).
-	_, out := s.Chat(key, map[string]any{"tools": tools, "messages": user("use log_food and get_daily_summary")})
+	_, out := s.Chat(key, map[string]any{"tools": tools, "messages": user("use add_task and get_agenda")})
 	msg, _ := firstChoice(t, out)
 	if calls := msg["tool_calls"].([]any); len(calls) != 2 {
 		t.Fatalf("expected two calls: %v", msg)
 	}
-	_, out = s.Chat(key, map[string]any{"tools": tools, "parallel_tool_calls": false, "messages": user("use log_food and get_daily_summary")})
+	_, out = s.Chat(key, map[string]any{"tools": tools, "parallel_tool_calls": false, "messages": user("use add_task and get_agenda")})
 	msg, _ = firstChoice(t, out)
 	if calls := msg["tool_calls"].([]any); len(calls) != 1 {
 		t.Fatalf("parallel_tool_calls=false should keep one call: %v", msg)
 	}
 
 	// A named tool_choice exposes only that tool.
-	_, out = s.Chat(key, map[string]any{"tools": tools, "tool_choice": map[string]any{"type": "function", "function": map[string]any{"name": "get_daily_summary"}}, "messages": user("anything")})
+	_, out = s.Chat(key, map[string]any{"tools": tools, "tool_choice": map[string]any{"type": "function", "function": map[string]any{"name": "get_agenda"}}, "messages": user("anything")})
 	msg, _ = firstChoice(t, out)
 	fn := msg["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)
-	if fn["name"] != "get_daily_summary" || fn["arguments"] != `{"date":"2026-01-01"}` {
+	if fn["name"] != "get_agenda" || fn["arguments"] != `{"date":"2026-01-01"}` {
 		t.Fatalf("named tool: %v", fn)
 	}
 
@@ -266,7 +266,7 @@ func TestToolChoiceAndParallelCalls(t *testing.T) {
 	}
 
 	// Legacy functions are treated as tools.
-	_, out = s.Chat(key, map[string]any{"functions": []any{logFood["function"]}, "messages": user("log it")})
+	_, out = s.Chat(key, map[string]any{"functions": []any{addTask["function"]}, "messages": user("add it")})
 	if _, finish := firstChoice(t, out); finish != "tool_calls" {
 		t.Fatalf("legacy functions: %v", out)
 	}
@@ -280,7 +280,7 @@ func TestToolChoiceAndParallelCalls(t *testing.T) {
 
 func TestStreamingToolCalls(t *testing.T) {
 	s, key := signedIn(t, support.Options{})
-	_, events, done := s.Stream(key, map[string]any{"tools": []any{logFood}, "messages": user("log toast")})
+	_, events, done := s.Stream(key, map[string]any{"tools": []any{addTask}, "messages": user("remind me to water the plants")})
 	if !done {
 		t.Fatal("missing [DONE]")
 	}
@@ -306,7 +306,7 @@ func TestStreamingToolCalls(t *testing.T) {
 			}
 		}
 	}
-	if name != "log_food" || finish != "tool_calls" || id == "" || !json.Valid([]byte(args)) {
+	if name != "add_task" || finish != "tool_calls" || id == "" || !json.Valid([]byte(args)) {
 		t.Fatalf("name %q id %q finish %q args %q", name, id, finish, args)
 	}
 }
@@ -314,25 +314,25 @@ func TestStreamingToolCalls(t *testing.T) {
 func TestStructuredOutput(t *testing.T) {
 	s, key := signedIn(t, support.Options{})
 	schema := map[string]any{"type": "object", "properties": map[string]any{
-		"calories": map[string]any{"type": "number"}, "food": map[string]any{"type": "string"},
+		"total": map[string]any{"type": "number"}, "merchant": map[string]any{"type": "string"},
 		"items": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	}}
-	_, out := s.Chat(key, map[string]any{"messages": user("banana"),
-		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "food", "schema": schema}}})
+	_, out := s.Chat(key, map[string]any{"messages": user("read this receipt"),
+		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "receipt", "schema": schema}}})
 	var v map[string]any
 	if err := json.Unmarshal([]byte(support.Content(out)), &v); err != nil {
 		t.Fatalf("not JSON: %q", support.Content(out))
 	}
-	if v["calories"].(float64) != 42 || v["food"] != "fake food" || len(v["items"].([]any)) != 1 {
+	if v["total"].(float64) != 42 || v["merchant"] != "fake merchant" || len(v["items"].([]any)) != 1 {
 		t.Fatalf("value %v", v)
 	}
 
 	// JSON mode strips the code fence the model adds.
-	_, out = s.Chat(key, map[string]any{"messages": user("apple"), "response_format": map[string]any{"type": "json_object"}})
-	if support.Content(out) != `{"fake":true,"reply":"apple"}` {
+	_, out = s.Chat(key, map[string]any{"messages": user("hello"), "response_format": map[string]any{"type": "json_object"}})
+	if support.Content(out) != `{"fake":true,"reply":"hello"}` {
 		t.Fatalf("json_object: %q", support.Content(out))
 	}
-	_, events, _ := s.Stream(key, map[string]any{"messages": user("pear"), "response_format": map[string]any{"type": "json_object"}})
+	_, events, _ := s.Stream(key, map[string]any{"messages": user("world"), "response_format": map[string]any{"type": "json_object"}})
 	var text strings.Builder
 	for _, e := range events {
 		for _, c := range e["choices"].([]any) {
@@ -341,7 +341,7 @@ func TestStructuredOutput(t *testing.T) {
 			}
 		}
 	}
-	if text.String() != `{"fake":true,"reply":"pear"}` {
+	if text.String() != `{"fake":true,"reply":"world"}` {
 		t.Fatalf("streamed json_object: %q", text.String())
 	}
 

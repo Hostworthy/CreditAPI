@@ -20,14 +20,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent"
+	"github.com/atb00ker/CreditAPI/src/internal/agent/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/agent/cursor"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
 	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakes"
 )
 
 func TestMain(m *testing.M) {
-	fakeclaude.MaybeRun()
+	fakes.MaybeRun()
 	os.Exit(m.Run())
 }
 
@@ -40,6 +44,8 @@ func testConfig() *config.Config {
 	}
 }
 
+// testHandler returns a handler whose only subscription ("Claude") runs the
+// fake CLI in the given scenario, a key that may use it and the record path.
 func testHandler(t *testing.T, scenario string) (*Handler, string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -47,22 +53,33 @@ func testHandler(t *testing.T, scenario string) (*Handler, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, secret, err := ks.Create("test")
+	k, secret, err := ks.Create("test")
 	if err != nil {
+		t.Fatal(err)
+	}
+	store, _, err := subscriptions.OpenStore(filepath.Join(dir, "subscriptions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create("Claude", "claude", []string{k.ID}, "OPENAI_TEST_TOKEN"); err != nil {
 		t.Fatal(err)
 	}
 	exe, _ := os.Executable()
 	record := filepath.Join(dir, "record.json")
-	bridge, err := claude.NewBridge()
+	bridge, err := agent.NewBridge()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := claude.NewRunner(2)
-	r.Bin, r.WorkDir, r.Bridge, r.Status = exe, dir, bridge, &claude.Status{}
-	r.Env = func() []string {
-		return append(os.Environ(), fakeclaude.EnvScenario+"="+scenario, fakeclaude.EnvRecord+"="+record)
-	}
-	return NewHandler(testConfig(), ks, r), secret, record
+	t.Cleanup(func() { _ = bridge.Close() })
+	t.Setenv(fakeclaude.EnvScenario, scenario)
+	t.Setenv(fakeclaude.EnvRecord, record)
+	t.Setenv("OPENAI_TEST_TOKEN", "tok")
+	cfg := testConfig()
+	subs := subscriptions.NewManager(dir, store, &agent.EnvBuilder{},
+		subscriptions.Routing{Aliases: cfg.ModelAliases, Strict: cfg.StrictModels},
+		&claude.Backend{Bin: exe, WorkDir: dir, Bridge: bridge, Default: cfg.DefaultModel, List: cfg.Models},
+		&cursor.Backend{Bin: "/bin/false", Default: "auto", List: []string{"auto"}})
+	return NewHandler(cfg, ks, subs, agent.NewSlots(cfg.MaxConcurrent)), secret, record
 }
 
 func pngDataURL(t *testing.T, w, h int) string {
@@ -100,8 +117,8 @@ func TestConvertSingleUserMessage(t *testing.T) {
 func TestConvertTranscriptWithTools(t *testing.T) {
 	h, _, _ := testHandler(t, "text")
 	msgs := []Message{
-		{Role: "user", Content: json.RawMessage(`"Log 2 eggs"`)},
-		{Role: "assistant", Content: json.RawMessage(`null`), ToolCalls: []ToolCallMsg{{ID: "call_1", Type: "function", Function: FunctionCall{Name: "log_food", Arguments: `{"food":"egg","qty":2}`}}}},
+		{Role: "user", Content: json.RawMessage(`"Add a task to pay rent"`)},
+		{Role: "assistant", Content: json.RawMessage(`null`), ToolCalls: []ToolCallMsg{{ID: "call_1", Type: "function", Function: FunctionCall{Name: "add_task", Arguments: `{"title":"pay rent","hours":1}`}}}},
 		{Role: "tool", ToolCallID: "call_1", Content: json.RawMessage(`"{\"ok\":true}"`)},
 	}
 	conv, err := h.convertMessages(context.Background(), msgs, true)
@@ -113,9 +130,9 @@ func TestConvertTranscriptWithTools(t *testing.T) {
 	}
 	text := conv.content[0].Text
 	for _, want := range []string{
-		"<user>\nLog 2 eggs\n</user>",
-		`<tool_call id="call_1" name="log_food">{"food":"egg","qty":2}</tool_call>`,
-		`<tool_result tool_call_id="call_1" name="log_food">` + "\n{\"ok\":true}\n</tool_result>",
+		"<user>\nAdd a task to pay rent\n</user>",
+		`<tool_call id="call_1" name="add_task">{"title":"pay rent","hours":1}</tool_call>`,
+		`<tool_result tool_call_id="call_1" name="add_task">` + "\n{\"ok\":true}\n</tool_result>",
 		"call more tools if needed",
 	} {
 		if !strings.Contains(text, want) {
@@ -141,14 +158,14 @@ func TestConvertErrors(t *testing.T) {
 
 func TestBuildToolsAndChoice(t *testing.T) {
 	req := &ChatRequest{Tools: []ToolDef{
-		{Type: "function", Function: FunctionDef{Name: "log.food", Parameters: json.RawMessage(`{"properties":{"a":{"type":"string"}}}`)}},
+		{Type: "function", Function: FunctionDef{Name: "add.task", Parameters: json.RawMessage(`{"properties":{"a":{"type":"string"}}}`)}},
 		{Type: "function", Function: FunctionDef{Name: "get_goals"}},
 	}}
 	tools, names, err := buildTools(req, parseToolChoice(nil, nil))
 	if err != nil || len(tools) != 2 {
 		t.Fatalf("tools %v err %v", tools, err)
 	}
-	if tools[0].Name != "log_food" || names["log_food"] != "log.food" {
+	if tools[0].Name != "add_task" || names["add_task"] != "add.task" {
 		t.Fatalf("name mapping %v %v", tools[0].Name, names)
 	}
 	if !strings.Contains(string(tools[0].InputSchema), `"type":"object"`) || string(tools[1].InputSchema) != `{"type":"object","properties":{}}` {
@@ -163,7 +180,7 @@ func TestBuildToolsAndChoice(t *testing.T) {
 		t.Fatal("none should drop tools")
 	}
 	long := strings.Repeat("x", 80)
-	if n := claudeToolName(long); len(n)+len(claude.BridgeToolPrefix) > 64 {
+	if n := claudeToolName(long); len(n)+len(agent.BridgeToolPrefix) > 64 {
 		t.Fatalf("name too long: %d", len(n))
 	}
 }
@@ -349,7 +366,7 @@ func TestHTTPAuthAndModels(t *testing.T) {
 	}
 	_ = json.NewDecoder(res.Body).Decode(&models)
 	res.Body.Close()
-	if len(models.Data) != 4 || models.Data[0].ID != "sonnet" {
+	if len(models.Data) != 7 || models.Data[0].ID != "sonnet" || models.Data[6].ID != "claude/haiku" {
 		t.Fatalf("models %+v", models)
 	}
 }
@@ -511,15 +528,15 @@ func TestHTTPToolCalls(t *testing.T) {
 func TestHTTPStructuredOutput(t *testing.T) {
 	srv, key, _ := newServer(t, "schema")
 	resp, out := doJSON(t, srv, key, "/v1/chat/completions", map[string]any{
-		"model": "sonnet", "messages": []map[string]any{{"role": "user", "content": "banana nutrition"}},
-		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "food", "schema": map[string]any{"type": "object"}}},
+		"model": "sonnet", "messages": []map[string]any{{"role": "user", "content": "weather in Paris"}},
+		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "weather", "schema": map[string]any{"type": "object"}}},
 	})
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d %v", resp.StatusCode, out)
 	}
 	content := out["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)["content"].(string)
 	var v map[string]any
-	if err := json.Unmarshal([]byte(content), &v); err != nil || v["food"] != "banana" {
+	if err := json.Unmarshal([]byte(content), &v); err != nil || v["city"] != "Paris" {
 		t.Fatalf("content %q", content)
 	}
 }
@@ -530,10 +547,11 @@ func TestHTTPAuthErrorAndStop(t *testing.T) {
 		"messages": []map[string]any{{"role": "user", "content": "hi"}},
 	})
 	e := out["error"].(map[string]any)
-	if resp.StatusCode != 401 || e["code"] != "claude_login_required" || e["type"] != "authentication_error" {
+	if resp.StatusCode != 401 || e["code"] != "subscription_login_required" || e["type"] != "authentication_error" {
 		t.Fatalf("status %d %v", resp.StatusCode, out)
 	}
-	if want := srv.URL + "/login"; !strings.Contains(e["message"].(string), want) {
+	if want := srv.URL + "/login?subscription="; !strings.Contains(e["message"].(string), want) ||
+		!strings.HasPrefix(e["message"].(string), "Sign-in required: Claude is signed out") {
 		t.Fatalf("message should link to %s: %v", want, e["message"])
 	}
 
@@ -579,7 +597,7 @@ func TestStreamLoginRequired(t *testing.T) {
 	}
 	last := events[len(events)-1]
 	e, ok := last["error"].(map[string]any)
-	if !ok || e["code"] != "claude_login_required" || !strings.Contains(e["message"].(string), "/login") {
+	if !ok || e["code"] != "subscription_login_required" || !strings.Contains(e["message"].(string), "/login?subscription=") {
 		t.Fatalf("last event %v", last)
 	}
 }
@@ -588,7 +606,7 @@ func TestImageURLFetch(t *testing.T) {
 	png8 := pngDataURL(t, 8, 8)
 	raw, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(png8, "data:image/png;base64,"))
 	mux := http.NewServeMux()
-	mux.HandleFunc("/food.png", func(w http.ResponseWriter, r *http.Request) { w.Write(raw) })
+	mux.HandleFunc("/photo.png", func(w http.ResponseWriter, r *http.Request) { w.Write(raw) })
 	mux.HandleFunc("/missing.png", http.NotFound)
 	mux.HandleFunc("/huge.png", func(w http.ResponseWriter, r *http.Request) { w.Write(make([]byte, maxImageDownload+10)) })
 	mux.HandleFunc("/loop", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/loop", http.StatusFound) })
@@ -596,11 +614,11 @@ func TestImageURLFetch(t *testing.T) {
 	defer srv.Close()
 
 	// The SSRF guard blocks the loopback test server unless private URLs are allowed.
-	if _, err := NewImageProcessor(0, true, false).Load(context.Background(), srv.URL+"/food.png"); err == nil || !strings.Contains(err.Error(), "non-public") {
+	if _, err := NewImageProcessor(0, true, false).Load(context.Background(), srv.URL+"/photo.png"); err == nil || !strings.Contains(err.Error(), "non-public") {
 		t.Fatalf("guard: %v", err)
 	}
 	p := NewImageProcessor(0, true, true)
-	blk, err := p.Load(context.Background(), srv.URL+"/food.png")
+	blk, err := p.Load(context.Background(), srv.URL+"/photo.png")
 	if err != nil || blk.Source.MediaType != "image/png" {
 		t.Fatalf("fetch: %v %+v", err, blk)
 	}

@@ -1,12 +1,14 @@
 docs {
   # CreditAPI end-to-end tests
 
-  Runs against the real server with the fake Claude CLI (`bin/fakeclaude`), so no
-  Claude account is needed. Start the stack with `make e2e` (uses `.env.bruno`),
-  then run this collection from the Bruno app with the `local` environment or with
-  `make bruno`. `make e2e-ci` does both headless.
+  Runs against the real server with the fake Claude and Cursor CLIs
+  (`bin/fakeclaude`, `bin/fakecursor`), so no account is needed. Start the stack
+  with `make e2e` (uses `.env.bruno`), then run this collection from the Bruno app
+  with the `local` environment or with `make bruno`. `make e2e-ci` does both
+  headless.
 
-  The first folder resets the server (removes the saved Claude login), so the
-  collection can be re-run against the same stack. The fake CLI reacts to
-  `[fake:...]` directives in prompts; see `src/tests/support/fakeclaude/auto.go`.
+  The first folder resets the server (signs the first Claude subscription out and
+  removes subscriptions left by an earlier run), so the collection can be re-run
+  against the same stack. The fake CLIs react to `[fake:...]` directives in
+  prompts; see `src/tests/support/fakecore/core.go`.
 }

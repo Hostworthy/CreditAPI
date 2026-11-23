@@ -1,0 +1,19 @@
+meta {
+  name: Sign Cursor out
+  type: http
+  seq: 27
+}
+
+delete {
+  url: {{baseUrl}}/admin/api/subscriptions/{{cursorId}}/credential
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}

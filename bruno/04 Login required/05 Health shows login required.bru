@@ -15,8 +15,9 @@ assert {
 }
 
 tests {
-  test("claude_login is login_required", function () {
-    expect(res.body.claude_login).to.equal("login_required");
-    expect(res.body.claude_token).to.equal(false);
+  test("logins_ok is false and the subscription needs a sign-in", function () {
+    expect(res.body.logins_ok).to.equal(false);
+    const sub = res.body.subscriptions.find((s) => s.id === bru.getVar("claudeId"));
+    expect(sub.login).to.equal("login_required");
   });
 }

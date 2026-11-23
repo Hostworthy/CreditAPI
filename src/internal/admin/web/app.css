@@ -153,18 +153,56 @@ pre { padding: 12px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: any
 }
 .secret code { display: block; padding: 8px; }
 
-.keys { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
-.keys li {
+.items { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 10px; }
+.items li {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px;
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
-.keys li.disabled { opacity: 0.6; }
-.keys .meta { color: var(--muted); font-size: 0.875rem; display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.keys .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.keys .name { font-weight: 600; overflow-wrap: anywhere; }
+.items li.disabled { opacity: 0.6; }
+.items .meta { color: var(--muted); font-size: 0.875rem; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.items .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.items .name { font-weight: 600; overflow-wrap: anywhere; }
+.items .usage { margin: 0; }
+.items .usage:empty { display: none; }
+
+.badge {
+  display: inline-block;
+  padding: 0 8px;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  vertical-align: middle;
+  background: var(--code-bg);
+  color: var(--muted);
+}
+.badge.claude { background: var(--accent); color: var(--accent-text); }
+.badge.cursor { background: var(--text); color: var(--bg); }
+
+.sub-state { margin: 0; font-weight: 600; }
+.sub-state[data-state="valid"] { color: var(--ok); }
+.sub-state[data-state="login_required"] { color: var(--warn); }
+
+select {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 40px;
+  max-width: 100%;
+}
+
+.table-scroll { overflow-x: auto; margin: 10px 0 0; }
+.matrix { border-collapse: collapse; min-width: 100%; font-size: 0.9rem; }
+.matrix th, .matrix td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: center; }
+.matrix th[scope="row"], .matrix thead th:first-child { text-align: left; overflow-wrap: anywhere; }
+.matrix thead th { font-weight: 600; vertical-align: bottom; }
+.matrix input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 10px 0 0; }
 .facts dt { color: var(--muted); }
@@ -189,8 +227,7 @@ pre { padding: 12px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: any
 .status[data-state="login_required"],
 .status[data-state="error"] { border-color: var(--warn); background: var(--warn-bg); }
 .small-text { font-size: 0.875rem; }
-#claude-summary[data-state="valid"] { color: var(--ok); }
-#claude-summary[data-state="login_required"] { color: var(--warn); font-weight: 600; }
+.status[data-state="disabled"] { opacity: 0.8; }
 
 .pill {
   display: inline-block;

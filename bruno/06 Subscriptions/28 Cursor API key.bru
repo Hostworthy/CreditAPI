@@ -1,0 +1,32 @@
+meta {
+  name: Cursor API key
+  type: http
+  seq: 28
+}
+
+put {
+  url: {{baseUrl}}/admin/api/subscriptions/{{cursorId}}/credential
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "credential": "fake-cursor-key-bruno-0123456789abcdef"
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("saved and shown only as a hint", function () {
+    expect(res.body.credential.source).to.equal("login");
+    expect(res.body.credential.hint).to.not.equal("fake-cursor-key-bruno-0123456789abcdef");
+  });
+}

@@ -1,15 +1,16 @@
 // Package integration_test runs the complete server (real wiring, real HTTP)
-// against the fake Claude CLI. The test binary re-executes itself as the CLI.
+// against the fake Claude and Cursor CLIs. The test binary re-executes itself
+// as either CLI.
 package integration_test
 
 import (
 	"os"
 	"testing"
 
-	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakes"
 )
 
 func TestMain(m *testing.M) {
-	fakeclaude.MaybeRun()
+	fakes.MaybeRun()
 	os.Exit(m.Run())
 }

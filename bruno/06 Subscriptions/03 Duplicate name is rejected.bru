@@ -1,0 +1,26 @@
+meta {
+  name: Duplicate name is rejected
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/admin/api/subscriptions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "name": "bruno cursor",
+    "provider": "cursor"
+  }
+}
+
+assert {
+  res.status: eq 400
+}

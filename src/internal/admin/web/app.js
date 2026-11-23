@@ -114,7 +114,7 @@ document.addEventListener("click", async (e) => {
   setTimeout(() => { btn.textContent = original; }, 1800);
 });
 
-// --- shared claude status --------------------------------------------------------
+// --- shared subscription status ----------------------------------------------------
 
 const windowNames = { five_hour: "5-hour window", seven_day: "7-day window", seven_day_opus: "7-day Opus", seven_day_sonnet: "7-day Sonnet" };
 
@@ -153,45 +153,114 @@ function renderUsage(container, rateLimit) {
   }
 }
 
-function tokenText(token) {
-  if (token.source === "login") {
-    const until = token.expires_about ? `, valid until about ${fmtDay(token.expires_about)}` : "";
-    return `Token ${token.hint} saved ${fmtDate(token.saved_at)}${until}.`;
+function credentialText(sub) {
+  const c = sub.credential || {};
+  if (c.source === "login") {
+    const until = c.expires_about ? `, valid until about ${fmtDay(c.expires_about)}` : "";
+    return `Credential ${c.hint || "(hidden)"} saved ${fmtDate(c.saved_at)}${until}.`;
   }
-  if (token.source === "env") return `Using CLAUDE_CODE_OAUTH_TOKEN from the environment (${token.hint}).`;
-  return "No token saved yet.";
+  if (c.source === "env") return `Using ${c.name} from the environment (${c.hint || "set"}).`;
+  if (sub.provider === "cursor") {
+    if (c.saved_at) return `Signed in through the browser ${fmtDate(c.saved_at)} (kept by the Cursor CLI).`;
+    return "No API key saved. A browser sign-in is kept by the Cursor CLI itself.";
+  }
+  return "No credential saved yet.";
 }
 
-function authText(auth, token) {
-  if (auth?.state === "valid") return `Signed in and working (verified ${fmtAgo(auth.checked_at)}).`;
-  if (auth?.state === "login_required") return "Sign-in required: requests fail until you sign in again.";
-  if (token.source) return "Signed in (not verified since the server started).";
-  return "Not signed in. Requests will fail until you sign in to Claude.";
+function authText(sub) {
+  const auth = sub.auth || {};
+  if (sub.disabled) return "Disabled: not used for requests.";
+  if (auth.state === "valid") return `Signed in and working (verified ${fmtAgo(auth.checked_at)}).`;
+  if (auth.state === "login_required") return "Sign-in required: this subscription is skipped until you sign in again.";
+  if (sub.credential?.source) return "Signed in (not verified since the server started).";
+  return "Not verified yet. Open Sign-in to check it.";
 }
+
+const subPath = (id) => `/admin/api/subscriptions/${encodeURIComponent(id)}`;
 
 // --- admin page --------------------------------------------------------------------
 
-async function loadClaudeSummary() {
-  const s = await api("GET", "/admin/api/claude");
-  const summary = $("#claude-summary");
-  summary.textContent = authText(s.auth, s.token);
-  summary.dataset.state = s.auth?.state || "unknown";
-  renderUsage($("#usage"), s.runtime.rate_limit);
-  const rt = s.runtime;
-  const facts = [
-    ["Token", tokenText(s.token)],
-    ["Claude CLI", rt.cli_version || "unknown"],
-    ["Requests", `${fmtNum(rt.completed)} ok, ${fmtNum(rt.failed)} failed, ${rt.in_flight} running`],
-    ["Default model", s.config.default_model],
+let subsCache = [];
+let keysCache = [];
+
+async function loadSubscriptions() {
+  const data = await api("GET", "/admin/api/subscriptions");
+  subsCache = data.subscriptions;
+  const select = $("#sub-provider");
+  if (!select.options.length) {
+    select.replaceChildren(...data.providers.map((p) => el("option", { value: p.id, text: p.label })));
+  }
+  const list = $("#sub-list");
+  list.replaceChildren();
+  $("#no-subs").hidden = subsCache.length > 0;
+  subsCache.forEach((sub, i) => list.append(subscriptionItem(sub, i, subsCache.length)));
+  renderModels(data.providers);
+  renderAccess();
+}
+
+function subscriptionItem(sub, index, count) {
+  const state = sub.disabled ? "disabled" : (sub.auth?.state || "unknown");
+  const reload = () => loadSubscriptions();
+  const act = (label, fn, cls = "small") => el("button", {
+    type: "button", class: cls, text: label,
+    onclick: (e) => withBusy(e.currentTarget, async () => {
+      try { await fn(); } catch (ex) { $("#sub-error").textContent = ex.message; }
+      await reload();
+    }),
+  });
+  const rt = sub.runtime || {};
+  const usage = el("div", { class: "usage" });
+  renderUsage(usage, rt.rate_limit);
+  const meta = [
+    el("span", { text: `Short name ${sub.slug}` }),
+    el("span", { text: `${sub.keys.length} key${sub.keys.length === 1 ? "" : "s"}` }),
+    el("span", { text: `${fmtNum(rt.completed)} ok, ${fmtNum(rt.failed)} failed` }),
   ];
-  if (rt.last_error) facts.push(["Last error", `${fmtDate(rt.last_error_at)}: ${rt.last_error}`]);
-  $("#runtime").replaceChildren(...facts.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
-  const models = [s.config.default_model, ...s.config.models].filter((m, i, a) => m && a.indexOf(m) === i);
-  $("#model-list").replaceChildren(...models.map((m, i) => [i ? ", " : "", el("code", { text: m })]).flat());
+  if (sub.cli_version) meta.push(el("span", { text: `CLI ${sub.cli_version}` }));
+  const item = el("li", { class: sub.disabled ? "disabled" : "" },
+    el("div", { class: "row space" },
+      el("span", { class: "name" }, sub.name, " ", el("span", { class: `badge ${sub.provider}`, text: sub.provider_label || sub.provider })),
+      el("span", { class: "muted small-text", text: `#${index + 1}` })),
+    el("p", { class: "sub-state", "data-state": state, text: authText(sub) }),
+    el("p", { class: "muted small-text", text: credentialText(sub) }),
+    usage,
+    el("div", { class: "meta" }, ...meta),
+    rt.last_error ? el("p", { class: "muted small-text", text: `Last error ${fmtDate(rt.last_error_at)}: ${rt.last_error}` }) : null,
+    el("div", { class: "actions" },
+      el("a", { class: `button small${state === "login_required" ? " primary" : ""}`, href: `/login?subscription=${encodeURIComponent(sub.id)}`, text: "Sign-in" }),
+      index > 0 ? act("Move up", () => api("POST", `${subPath(sub.id)}/move`, { direction: "up" })) : null,
+      index < count - 1 ? act("Move down", () => api("POST", `${subPath(sub.id)}/move`, { direction: "down" })) : null,
+      act("Rename", async () => {
+        const name = await promptDialog(sub.name);
+        if (name && name !== sub.name) await api("PATCH", subPath(sub.id), { name });
+      }),
+      act(sub.disabled ? "Enable" : "Disable", () => api("PATCH", subPath(sub.id), { disabled: !sub.disabled })),
+      act("Delete", async () => {
+        if (!(await confirmDialog(`Delete subscription "${sub.name}"? Its saved sign-in is removed and keys lose access to it.`))) return;
+        await api("DELETE", subPath(sub.id));
+      }, "small danger-outline")));
+  return item;
+}
+
+function renderModels(providers) {
+  const used = new Set(subsCache.map((s) => s.provider));
+  const parts = [];
+  for (const p of providers) {
+    if (!used.has(p.id)) continue;
+    const models = [p.default_model, ...(p.models || [])].filter((m, i, a) => m && a.indexOf(m) === i);
+    if (parts.length) parts.push("; ");
+    parts.push(`${p.label}: `);
+    models.forEach((m, i) => parts.push(i ? ", " : "", el("code", { text: m })));
+  }
+  if (subsCache[0]) {
+    parts.push(". Pin a subscription with ", el("code", { text: `${subsCache[0].slug}/<model>` }), ".");
+  }
+  $("#model-list").replaceChildren(...(parts.length ? parts : ["Add a subscription first."]));
 }
 
 async function loadKeys() {
   const { keys } = await api("GET", "/admin/api/keys");
+  keysCache = keys;
   const list = $("#key-list");
   list.replaceChildren();
   $("#no-keys").hidden = keys.length > 0;
@@ -209,18 +278,51 @@ async function loadKeys() {
         if (!(await confirmDialog(`Delete key "${k.name}"? Apps using it will stop working.`))) return;
         await api("DELETE", `/admin/api/keys/${encodeURIComponent(k.id)}`);
         await loadKeys();
+        await loadSubscriptions();
       },
     });
+    const names = k.subscriptions.map((id) => subsCache.find((s) => s.id === id)?.name).filter(Boolean);
     list.append(el("li", { class: k.disabled ? "disabled" : "" },
       el("div", { class: "row space" }, el("span", { class: "name", text: k.name }), el("code", { text: k.hint })),
       el("div", { class: "meta" },
         el("span", { text: k.disabled ? "Disabled" : "Active" }),
+        el("span", { text: names.length ? `Uses ${names.join(", ")}` : "No subscriptions" }),
         el("span", { text: `Created ${fmtDate(k.created_at)}` }),
         el("span", { text: `Last used ${fmtDate(k.last_used_at)}` }),
         el("span", { text: `${fmtNum(k.requests)} requests` }),
         el("span", { text: `${fmtNum(k.input_tokens)} in / ${fmtNum(k.output_tokens)} out tokens` })),
       el("div", { class: "actions" }, toggle, del)));
   }
+  renderAccess();
+}
+
+// renderAccess draws the key × subscription grid. Each checkbox saves the
+// key's full list of subscriptions.
+function renderAccess() {
+  const table = $("#access");
+  $("#access-card").hidden = !keysCache.length || !subsCache.length;
+  const head = el("tr", {}, el("th", { scope: "col", text: "Key" }),
+    ...subsCache.map((s) => el("th", { scope: "col" }, s.name, el("br"), el("span", { class: `badge ${s.provider}`, text: s.provider_label || s.provider }))));
+  const rows = keysCache.map((k) => el("tr", {},
+    el("th", { scope: "row", text: k.name }),
+    ...subsCache.map((s) => {
+      const box = el("input", {
+        type: "checkbox", "aria-label": `${k.name} may use ${s.name}`, checked: k.subscriptions.includes(s.id),
+        onchange: async (e) => {
+          $("#access-error").textContent = "";
+          const want = subsCache.filter((x) => (x.id === s.id ? e.target.checked : k.subscriptions.includes(x.id))).map((x) => x.id);
+          e.target.disabled = true;
+          try {
+            await api("PATCH", `/admin/api/keys/${encodeURIComponent(k.id)}`, { subscriptions: want });
+          } catch (ex) {
+            $("#access-error").textContent = ex.message;
+          }
+          await Promise.all([loadKeys(), loadSubscriptions()]);
+        },
+      });
+      return el("td", {}, box);
+    })));
+  table.replaceChildren(el("thead", {}, head), el("tbody", {}, ...rows));
 }
 
 function confirmDialog(text) {
@@ -230,6 +332,18 @@ function confirmDialog(text) {
   dlg.showModal();
   return new Promise((resolve) => {
     dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok"), { once: true });
+  });
+}
+
+function promptDialog(value) {
+  const dlg = $("#rename-dialog");
+  const input = $("#rename-input");
+  input.value = value;
+  dlg.returnValue = "";
+  dlg.showModal();
+  input.select();
+  return new Promise((resolve) => {
+    dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok" ? input.value.trim() : ""), { once: true });
   });
 }
 
@@ -252,8 +366,29 @@ function setupAdmin() {
         $("#new-secret-value").textContent = res.secret;
         $("#new-secret").hidden = false;
         await loadKeys();
+        await loadSubscriptions();
       } catch (ex) {
         $("#key-error").textContent = ex.message;
+      }
+    });
+  });
+
+  $("#create-sub").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("#sub-error").textContent = "";
+    await withBusy(e.submitter, async () => {
+      try {
+        const sub = await api("POST", "/admin/api/subscriptions", { name: $("#sub-name").value, provider: $("#sub-provider").value, keys: [] });
+        $("#sub-name").value = "";
+        await loadSubscriptions();
+        await loadKeys();
+        $("#sub-error").textContent = "";
+        const hint = el("p", { class: "result ok" }, `Added "${sub.name}". Tick the keys that may use it under Access, then `,
+          el("a", { href: `/login?subscription=${encodeURIComponent(sub.id)}`, text: "sign it in" }), ".");
+        $("#create-sub").after(hint);
+        setTimeout(() => hint.remove(), 15000);
+      } catch (ex) {
+        $("#sub-error").textContent = ex.message;
       }
     });
   });
@@ -261,31 +396,39 @@ function setupAdmin() {
 
 // --- login page --------------------------------------------------------------------
 //
-// Opening /login first resumes a sign-in that is already in progress (so a
-// reload never invalidates a code), otherwise checks whether the current login
-// works. Only when Claude says a login is required does it start a new one.
+// /login?subscription=<id> manages one subscription's sign-in. Opening it
+// first resumes a sign-in that is already in progress (so a reload never
+// invalidates a code), otherwise checks whether the current login works. Only
+// when the check says a login is required does it start a new one.
 
 let pollTimer = null;
 let lastFlowState = "";
 let lastAuthReason = "";
-const activeStates = new Set(["starting", "waiting_for_code", "submitting"]);
+let current = null; // the selected subscription
+const activeStates = new Set(["starting", "waiting_for_code", "waiting_for_browser", "submitting"]);
 const flowLabels = {
   starting: "Starting…",
   waiting_for_code: "Waiting for your code",
+  waiting_for_browser: "Waiting for you to approve in the browser",
   submitting: "Checking the code…",
   success: "Signed in",
   failed: "Sign-in failed",
 };
 
+function label() {
+  return current ? `${current.name} (${current.provider_label})` : "the subscription";
+}
+
 function setAuth(state, detail = "") {
   const box = $("#auth-box");
   box.dataset.state = state;
   const titles = {
-    checking: "Checking your Claude login…",
-    valid: "You're all set. Claude is signed in and working.",
+    checking: `Checking ${label()}…`,
+    valid: `You're all set. ${label()} is signed in and working.`,
     login_required: "Sign-in required.",
     signing_in: "Finish signing in below.",
-    error: "Couldn't verify the Claude login right now.",
+    error: `Couldn't verify ${label()} right now.`,
+    disabled: `${label()} is disabled on the admin page.`,
   };
   $("#auth-title").textContent = titles[state] || state;
   $("#auth-detail").textContent = detail;
@@ -296,9 +439,33 @@ function setAuth(state, detail = "") {
   $("[data-action=check]").hidden = state === "signing_in";
 }
 
-function renderToken(token) {
-  $("#token-info").textContent = tokenText(token);
-  $("[data-action=clear-token]").hidden = token.source !== "login";
+function renderCredential(sub) {
+  current = { ...current, ...sub };
+  $("#token-info").textContent = credentialText(sub);
+  // Cursor keeps browser sign-ins itself, so signing out is always offered.
+  const c = sub.credential || {};
+  $("[data-action=clear-token]").hidden = c.source !== "login" && sub.provider !== "cursor";
+}
+
+function renderProvider(sub) {
+  const claude = sub.provider === "claude";
+  $("#flow-title").textContent = `Sign in to ${sub.provider_label}`;
+  $("#step-open").textContent = `Open the ${sub.provider_label} sign-in page (it opens in a new tab) and approve access${claude ? "" : " with the account you want to use"}.`;
+  $("#login-link").textContent = `Open ${sub.provider_label} sign-in`;
+  $("#step-code").hidden = !claude;
+  $("#step-browser").hidden = claude;
+  $("#token-card").hidden = false;
+  if (claude) {
+    $("#token-summary").textContent = "Already have a token?";
+    $("#token-help").replaceChildren("Run ", el("code", { text: "claude setup-token" }), " on any computer with a browser and paste the resulting ", el("code", { text: "sk-ant-oat01-…" }), " token here.");
+    $("#token").placeholder = "sk-ant-oat01-…";
+    $("#token-label").textContent = "OAuth token";
+  } else {
+    $("#token-summary").textContent = "Use a Cursor API key instead?";
+    $("#token-help").textContent = "Create an API key in your Cursor dashboard and paste it here. It is used instead of a browser sign-in.";
+    $("#token").placeholder = "Cursor API key";
+    $("#token-label").textContent = "Cursor API key";
+  }
 }
 
 function renderFlow(login) {
@@ -320,15 +487,16 @@ function renderFlow(login) {
 }
 
 async function runCheck(force, { autoStart = true } = {}) {
+  if (!current) return;
   setAuth("checking");
   let r;
   try {
-    r = await api("POST", "/admin/api/claude/check", { force });
+    r = await api("POST", `${subPath(current.id)}/check`, { force });
   } catch (ex) {
     if (ex.status !== 401) setAuth("error", ex.message);
     return;
   }
-  renderToken(r.token);
+  renderCredential(r.subscription);
   if (r.state === "valid") {
     const how = r.source === "request" ? "by a real request" : "by a test prompt";
     setAuth("valid", `Verified ${fmtAgo(r.checked_at)} ${how}. Nothing to do.`);
@@ -341,15 +509,16 @@ async function runCheck(force, { autoStart = true } = {}) {
       setAuth("login_required", lastAuthReason);
     }
   } else {
-    setAuth("error", `${r.reason || "Unknown error"}. Your login may still be fine; try again in a moment.`);
+    setAuth("error", `${r.reason || "Unknown error"}. The login may still be fine; try again in a moment.`);
   }
 }
 
 async function startLogin() {
+  if (!current) return;
   setAuth("signing_in", lastAuthReason ? `Reason: ${lastAuthReason}` : "");
   renderFlow({ state: "starting" });
   try {
-    await api("POST", "/admin/api/claude/login");
+    await api("POST", `${subPath(current.id)}/login`);
   } catch (ex) {
     $("#flow-error").textContent = ex.message;
   }
@@ -359,14 +528,17 @@ async function startLogin() {
 
 async function refreshLogin() {
   clearTimeout(pollTimer);
+  if (!current) return;
+  const id = current.id;
   let s;
   try {
-    s = await api("GET", "/admin/api/claude");
+    s = await api("GET", subPath(id));
   } catch (ex) {
-    if (ex.status !== 401) pollTimer = setTimeout(refreshLogin, 3000);
+    if (ex.status !== 401 && ex.status !== 404) pollTimer = setTimeout(refreshLogin, 3000);
     return;
   }
-  renderToken(s.token);
+  if (current?.id !== id) return; // switched subscriptions meanwhile
+  renderCredential(s);
   const state = s.login.state;
   const justSucceeded = state === "success" && activeStates.has(lastFlowState);
   lastFlowState = state;
@@ -381,23 +553,61 @@ async function refreshLogin() {
   }
 }
 
-async function boot() {
+async function selectSubscription(id) {
+  clearTimeout(pollTimer);
+  lastFlowState = "";
+  lastAuthReason = "";
+  $("#flow").hidden = true;
   let s;
   try {
-    s = await api("GET", "/admin/api/claude");
+    s = await api("GET", subPath(id));
   } catch {
     return;
   }
-  renderToken(s.token);
+  current = s;
+  const url = new URL(location.href);
+  url.searchParams.set("subscription", id);
+  history.replaceState(null, "", url);
+  renderProvider(s);
+  renderCredential(s);
   if (activeStates.has(s.login.state)) {
     lastFlowState = s.login.state;
     await refreshLogin();
     return;
   }
+  if (s.disabled) {
+    setAuth("disabled", "Enable it on the admin page to use it for requests. You can still sign it in.");
+    return;
+  }
   await runCheck(false);
 }
 
+async function boot() {
+  let data;
+  try {
+    data = await api("GET", "/admin/api/subscriptions");
+  } catch {
+    return;
+  }
+  const subs = data.subscriptions;
+  $("#no-subscriptions").hidden = subs.length > 0;
+  $("#sub-card").hidden = subs.length === 0;
+  if (!subs.length) return;
+  const select = $("#sub-select");
+  select.replaceChildren(...subs.map((s) => el("option", { value: s.id, text: `${s.name} · ${s.provider_label}${s.disabled ? " (disabled)" : ""}` })));
+  // The link in a "sign-in required" error names the subscription; otherwise
+  // pick one that is signing in or known to need it.
+  const wanted = new URLSearchParams(location.search).get("subscription");
+  const pick = subs.find((s) => s.id === wanted)
+    || subs.find((s) => activeStates.has(s.login?.state))
+    || subs.find((s) => !s.disabled && s.auth?.state === "login_required")
+    || subs[0];
+  select.value = pick.id;
+  await selectSubscription(pick.id);
+}
+
 function setupLogin() {
+  $("#sub-select").addEventListener("change", (e) => selectSubscription(e.target.value));
   $("[data-action=start-login]").addEventListener("click", (e) => withBusy(e.currentTarget, startLogin));
   $("[data-action=restart-login]").addEventListener("click", (e) => withBusy(e.currentTarget, startLogin));
   $("[data-action=check]").addEventListener("click", (e) => withBusy(e.currentTarget, () => runCheck(true, { autoStart: false })));
@@ -407,7 +617,7 @@ function setupLogin() {
     $("#flow-error").textContent = "";
     await withBusy(e.submitter, async () => {
       try {
-        await api("POST", "/admin/api/claude/login/code", { code: $("#code").value });
+        await api("POST", `${subPath(current.id)}/login/code`, { code: $("#code").value });
         $("#code").value = "";
         lastFlowState = "submitting";
       } catch (ex) {
@@ -433,16 +643,17 @@ function setupLogin() {
     });
   }
 
-  // Coming back from the Claude tab: put the cursor in the code box.
+  // Coming back from the sign-in tab: put the cursor in the code box, or
+  // check right away whether the browser approval went through.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && lastFlowState === "waiting_for_code" && !$("#code").value) {
-      $("#code").focus();
-    }
+    if (document.visibilityState !== "visible") return;
+    if (lastFlowState === "waiting_for_code" && !$("#code").value) $("#code").focus();
+    if (lastFlowState === "waiting_for_browser") refreshLogin();
   });
 
   $("[data-action=cancel-login]").addEventListener("click", async () => {
     clearTimeout(pollTimer);
-    await api("DELETE", "/admin/api/claude/login").catch(() => {});
+    if (current) await api("DELETE", `${subPath(current.id)}/login`).catch(() => {});
     lastFlowState = "idle";
     $("#flow").hidden = true;
     setAuth("login_required", "Sign-in cancelled.");
@@ -450,7 +661,7 @@ function setupLogin() {
 
   $("[data-action=clear-token]").addEventListener("click", async (e) => {
     await withBusy(e.currentTarget, async () => {
-      await api("DELETE", "/admin/api/claude/token");
+      await api("DELETE", `${subPath(current.id)}/credential`);
       await runCheck(true, { autoStart: false });
     });
   });
@@ -460,7 +671,7 @@ function setupLogin() {
     $("#token-error").textContent = "";
     await withBusy(e.submitter, async () => {
       try {
-        await api("PUT", "/admin/api/claude/token", { token: $("#token").value });
+        await api("PUT", `${subPath(current.id)}/credential`, { credential: $("#token").value });
         $("#token").value = "";
         await runCheck(true, { autoStart: false });
       } catch (ex) {
@@ -480,8 +691,7 @@ function startPage() {
     if (page === "login") setupLogin();
   }
   if (page === "admin") {
-    loadKeys().catch(() => {});
-    loadClaudeSummary().catch(() => {});
+    loadSubscriptions().then(loadKeys).catch(() => {});
   }
   if (page === "login") boot();
 }
