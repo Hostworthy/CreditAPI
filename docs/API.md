@@ -57,7 +57,7 @@ curl https://your-server/v1/chat/completions \
 | `tools`, `tool_choice` (auto, none, required, named)      | Yes, plus `parallel_tool_calls` and legacy `functions`               |
 | `image_url` content parts                                 | Data URL, bare base64 or http(s) link; JPEG, PNG, GIF, WebP          |
 | `response_format` `json_schema`                           | Schema-validated structured output                                   |
-| `response_format` `json_object`                           | JSON only, code fences stripped                                      |
+| `response_format` `json_object`                           | JSON only, code fences stripped; the plain reply if it has no JSON |
 | `max_tokens` / `max_completion_tokens`                    | Yes, minimum 256 so tool calls are not cut off                       |
 | `stop`                                                    | Yes (string or list)                                                 |
 | `reasoning_effort`                                        | Claude: mapped to `--effort` (`minimal` becomes `low`). Cursor: ignored |
@@ -66,7 +66,8 @@ curl https://your-server/v1/chat/completions \
 
 Images: the longest side is scaled to `IMAGE_MAX_DIMENSION` (1568 px) and EXIF
 rotation is applied, so phone photos arrive upright and small. HEIC/AVIF are
-rejected with a hint to send JPEG. Only the newest `MAX_IMAGES` images of a
+rejected with a hint to send JPEG. Images with more than `IMAGE_MAX_PIXELS`
+pixels are refused with `400 invalid_messages`. Only the newest `MAX_IMAGES` images of a
 conversation are sent; older ones become `[earlier image omitted]`.
 
 ### Models and Subscriptions
@@ -84,10 +85,13 @@ Every request is answered by one of the subscriptions its key may use (see
   the key accepts returns `404 model_not_found` instead.
 - `<slug>/<model>` (for example `claude-work/sonnet` or `cursor-personal/auto`)
   pins one subscription by its short name. An empty model after the slash uses
-  that subscription's default. A pinned request never falls back; pinning a
+  that subscription's default; a model that subscription does not offer
+  returns `404 model_not_found`. A pinned request never falls back; pinning a
   subscription the key may not use, or a disabled one, returns `403`.
 - When a subscription is signed out, at its usage limit, overloaded or fails
   before anything was streamed, the next candidate answers.
+  A subscription that hit its usage limit rests for 60 seconds (15 after an
+  overload): it is tried after the other candidates until then.
 
 Responses echo the model name the client sent.
 
@@ -135,13 +139,14 @@ Errors use the OpenAI envelope:
 | Status | `type`                  | `code`                    | When                                                         |
 | ------ | ----------------------- | ------------------------- | ------------------------------------------------------------ |
 | 400    | `invalid_request_error` | `invalid_json`, `invalid_messages`, `invalid_tools`, `invalid_response_format`, `unsupported_n`, `invalid_request` | Bad request or rejected by the model |
+| 400    | `invalid_request_error` | `invalid_model`           | Model name with characters other than letters, digits and `. _ : / [ ] -`, or longer than 128 |
 | 401    | `invalid_request_error` | `invalid_api_key`         | Missing, unknown or disabled virtual key                     |
 | 401    | `authentication_error`  | `subscription_login_required` | No subscription could answer because they are signed out; the message names them and links to `/login?subscription=<id>` |
 | 403    | `permission_error`      | `no_subscription`         | The key may not use any enabled subscription, or not the pinned one |
 | 404    | `invalid_request_error` | `model_not_found`         | No subscription of the key accepts the model and `STRICT_MODELS=true` |
 | 413    | `invalid_request_error` | `request_too_large`       | Body over `MAX_BODY_MB`                                      |
 | 429    | `rate_limit_error`      | `rate_limit_exceeded`     | Usage limit reached on every subscription tried              |
-| 429    | `rate_limit_error`      | `server_busy`             | All `MAX_CONCURRENT` slots busy for `QUEUE_TIMEOUT`          |
+| 429    | `rate_limit_error`      | `server_busy`             | All `MAX_CONCURRENT` slots busy for `QUEUE_TIMEOUT`, or `MAX_PENDING` requests already admitted |
 | 502    | `api_error`             | `upstream_error`          | The CLI failed                                               |
 | 503    | `service_unavailable`   | `overloaded`              | The model is overloaded                                      |
 | 504    | `api_error`             | `timeout`                 | Over `REQUEST_TIMEOUT`                                       |
@@ -162,7 +167,7 @@ address is locked out (`429`).
 | Method   | Path                              | Body                         | Description                                                  |
 | -------- | --------------------------------- | ---------------------------- | ------------------------------------------------------------ |
 | `POST`   | `/admin/api/session`              | `{"password"}`               | Sign in; sets the `creditapi_admin` cookie (7 days)               |
-| `DELETE` | `/admin/api/session`              |                              | Sign out                                                     |
+| `DELETE` | `/admin/api/session`              |                              | Sign out. This signs out every browser (sessions are not stored, so the signing secret is replaced) |
 | `GET`    | `/admin/api/me`                   |                              | `{"authenticated": bool}`                                    |
 | `GET`    | `/admin/api/keys`                 |                              | List keys with usage counters and `subscriptions` (never secrets or hashes) |
 | `POST`   | `/admin/api/keys`                 | `{"name", "subscriptions"?}` | Create a key; the `secret` is returned only here. Without `subscriptions` the key may use every subscription |
@@ -208,15 +213,21 @@ curl -X POST https://your-server/admin/api/keys \
 
 ## Health
 
-`GET /healthz` (no authentication):
+`GET /healthz` needs no authentication:
 
 ```json
-{"ok": true, "logins_ok": true, "subscriptions": [
-  {"id": "1a2b3c4d5e6f", "name": "Claude (Personal)", "provider": "claude", "login": "valid"}
-]}
+{"ok": true, "logins_ok": true, "subscription_count": 2, "logins_needed": 0}
 ```
 
-Each enabled subscription's `login` is `valid`, `login_required` or `unknown`
-(nothing has been tried since the server started or the credential changed).
-`logins_ok` is false when any of them is `login_required`. Every response carries
+`logins_ok` is false when any enabled subscription is known to need a sign-in;
+`logins_needed` counts them. With the admin session or
+`Authorization: Bearer <ADMIN_PASSWORD>`, the response also lists each enabled
+subscription:
+
+```json
+"subscriptions": [{"id": "1a2b3c4d5e6f", "name": "Claude (Personal)", "provider": "claude", "login": "valid"}]
+```
+
+Each `login` is `valid`, `login_required` or `unknown` (nothing has been tried
+since the server started or the credential changed). Every response carries
 an `X-Request-Id` header; a valid incoming `X-Request-Id` is reused.

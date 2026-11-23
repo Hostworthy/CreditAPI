@@ -5,7 +5,10 @@
 package agent
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -112,7 +115,7 @@ func (e *Error) Error() string { return e.Message }
 // one failed.
 func (e *Error) Retryable() bool {
 	switch e.Kind {
-	case "auth", "rate_limit", "overloaded", "upstream":
+	case KindAuth, KindRateLimit, KindOverloaded, KindUpstream:
 		return true
 	}
 	return false
@@ -128,16 +131,16 @@ func Classify(label string, status int, msg string) *Error {
 		strings.Contains(lower, "not authenticated") || strings.Contains(lower, "authentication required") ||
 		strings.Contains(lower, "oauth token") ||
 		strings.Contains(lower, "invalid api key") || strings.Contains(lower, "unauthorized"):
-		return &Error{Kind: "auth", Status: 401, Message: label + " login required (" + Truncate(strings.TrimSpace(msg), 300) + ")"}
+		return &Error{Kind: KindAuth, Status: 401, Message: label + " login required (" + Truncate(strings.TrimSpace(msg), 300) + ")"}
 	case status == 429 || strings.Contains(lower, "rate limit") || strings.Contains(lower, "usage limit") ||
 		strings.Contains(lower, "quota"):
-		return &Error{Kind: "rate_limit", Status: 429, Message: Truncate(msg, 500)}
+		return &Error{Kind: KindRateLimit, Status: 429, Message: Truncate(msg, 500)}
 	case status == 529 || strings.Contains(lower, "overloaded"):
-		return &Error{Kind: "overloaded", Status: 503, Message: Truncate(msg, 500)}
+		return &Error{Kind: KindOverloaded, Status: 503, Message: Truncate(msg, 500)}
 	case status == 400 || status == 413 || strings.Contains(lower, "invalid request") || strings.Contains(lower, "invalid_request"):
-		return &Error{Kind: "invalid_request", Status: 400, Message: Truncate(msg, 500)}
+		return &Error{Kind: KindInvalidRequest, Status: 400, Message: Truncate(msg, 500)}
 	}
-	return &Error{Kind: "upstream", Status: 502, Message: Truncate(msg, 500)}
+	return &Error{Kind: KindUpstream, Status: 502, Message: Truncate(msg, 500)}
 }
 
 // ExtractJSON returns the first JSON object or array found in s (also inside
@@ -173,6 +176,61 @@ func ExtractJSON(s string) json.RawMessage {
 	}
 	return nil
 }
+
+var modelNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$`)
+
+// ValidModelName reports whether s is a plausible model name: letters,
+// digits and . _ : / [ ] -, starting with a letter or digit, at most 128
+// characters. Names reach the CLIs as one argument after --model.
+func ValidModelName(s string) bool { return modelNameRe.MatchString(s) }
+
+var reservedTagRe = regexp.MustCompile(`(?i)<(\s*/?\s*)(user|assistant|tool_call|tool_result|instructions)\b`)
+
+// EscapeTags neutralizes the tags that give a prompt its structure (<user>,
+// <assistant>, <tool_call>, <tool_result>, <instructions>) inside text that
+// came from a client, so message content cannot close its own element and
+// add a fake turn. Nothing else is changed.
+func EscapeTags(s string) string { return reservedTagRe.ReplaceAllString(s, "&lt;${1}${2}") }
+
+// MaxLineBytes caps one line of CLI output.
+const MaxLineBytes = 32 << 20
+
+// ReadLine reads one newline-terminated line of at most max bytes. A longer
+// line is an error, so a misbehaving CLI cannot make the server buffer
+// without limit.
+func ReadLine(rd *bufio.Reader, max int) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := rd.ReadSlice('\n')
+		if len(line)+len(chunk) > max {
+			return nil, fmt.Errorf("CLI output line longer than %d bytes", max)
+		}
+		line = append(line, chunk...)
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return line, err
+	}
+}
+
+// Error kinds. Retryable kinds make the handler try the next subscription.
+const (
+	KindAuth           = "auth"
+	KindRateLimit      = "rate_limit"
+	KindOverloaded     = "overloaded"
+	KindUpstream       = "upstream"
+	KindInvalidRequest = "invalid_request"
+	KindInvalidModel   = "invalid_model"
+	KindBusy           = "busy"
+	KindForbidden      = "forbidden"
+	KindNotFound       = "not_found"
+)
+
+// Provider identifiers stored with subscriptions.
+const (
+	ProviderClaude = "claude"
+	ProviderCursor = "cursor"
+)
 
 // Truncate shortens s to n bytes, adding an ellipsis when cut.
 func Truncate(s string, n int) string {

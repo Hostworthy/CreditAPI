@@ -120,7 +120,7 @@ func TestKeyLifecycleAndUsage(t *testing.T) {
 }
 
 func TestAdminSessionCookie(t *testing.T) {
-	s := support.NewServer(t, support.Options{})
+	s := support.NewServer(t, support.Options{PublicURL: "https://ai.example.com"})
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
 
@@ -141,7 +141,9 @@ func TestAdminSessionCookie(t *testing.T) {
 	if resp := post("/admin/api/session", `{"password":"wrong"}`, nil); resp.StatusCode != 401 {
 		t.Fatalf("wrong password: %d", resp.StatusCode)
 	}
-	resp := post("/admin/api/session", `{"password":"`+support.AdminPassword+`"}`, map[string]string{"X-Forwarded-Proto": "https"})
+	// PUBLIC_URL is https, so the cookie is Secure; a spoofed
+	// X-Forwarded-Proto alone (no TRUSTED_PROXIES) would not do it.
+	resp := post("/admin/api/session", `{"password":"`+support.AdminPassword+`"}`, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("sign in: %d", resp.StatusCode)
 	}

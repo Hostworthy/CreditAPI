@@ -20,6 +20,7 @@ shell always win.
 | `HOST`           | `127.0.0.1` (`0.0.0.0` in Docker) | Listen address.                                                                         |
 | `PORT`           | `8080`                      | Listen port.                                                                                  |
 | `PUBLIC_URL`     |                             | Address you open in the browser, e.g. `https://ai.example.com`. Used for the `/login` link in `subscription_login_required` errors; without it the link uses the address the client called. |
+| `TRUSTED_PROXIES` |                            | Comma-separated addresses or CIDR ranges of reverse proxies whose `X-Forwarded-For`, `-Proto` and `-Host` headers are believed. Empty (default): those headers are ignored. |
 | `DATA_DIR`       | `./data` (`/data` in Docker) | Keys, subscriptions with their saved logins and CLI files (`subscriptions/<id>/`), and the session secret. |
 | `LOG_LEVEL`      | `info`                      | `debug`, `info`, `warn` or `error`.                                                           |
 
@@ -59,6 +60,7 @@ with its own `HOME` under `$DATA_DIR/subscriptions/<id>/home`.
 | Variable          | Default | Description                                                        |
 | ----------------- | ------- | ------------------------------------------------------------------ |
 | `MAX_CONCURRENT`  | `2`     | CLI processes allowed at once, across all subscriptions (each uses roughly 250-350 MB). |
+| `MAX_PENDING`     | `4 x MAX_CONCURRENT` | Chat requests admitted at once, running plus waiting. More are refused at once with `429 server_busy`; this bounds the memory queued requests hold. |
 | `QUEUE_TIMEOUT`   | `2m`    | How long a request waits for a free slot before `429 server_busy`. Seconds or a Go duration. |
 | `REQUEST_TIMEOUT` | `10m`   | Maximum time for one request.                                      |
 | `MAX_BODY_MB`     | `50`    | Maximum request body size.                                         |
@@ -68,6 +70,7 @@ with its own `HOME` under `$DATA_DIR/subscriptions/<id>/home`.
 | Variable                   | Default | Description                                                    |
 | -------------------------- | ------- | -------------------------------------------------------------- |
 | `IMAGE_MAX_DIMENSION`      | `1568`  | Longest side in pixels; `0` disables resizing.                 |
+| `IMAGE_MAX_PIXELS`         | `40000000` | Images with more pixels (width x height) are refused before decoding, so a tiny file cannot claim a huge canvas. |
 | `MAX_IMAGES`               | `20`    | Only the newest N images of a conversation are sent.           |
 | `ALLOW_IMAGE_URLS`         | `true`  | Download `http(s)` image links.                                |
 | `ALLOW_PRIVATE_IMAGE_URLS` | `false` | Also allow links to private, loopback and link-local addresses. |
@@ -93,8 +96,9 @@ unless you set them.
 
 | Argument         | Default  | Description                                                    |
 | ---------------- | -------- | -------------------------------------------------------------- |
-| `CLAUDE_VERSION` | `stable` | `stable`, `latest` or an exact Claude Code version (`2.1.323`). |
-| `CURSOR_VERSION` | `latest` | `latest`, an exact Cursor CLI version (`2026.11.22-e9042b2`) or `none` for an image without Cursor (about 540 MB smaller). |
+| `CLAUDE_VERSION` | `2.1.325` | An exact Claude Code version (checked against Anthropic's release manifest), `stable` or `latest`. |
+| `CURSOR_VERSION` | `2026.11.22-e9042b2` | An exact Cursor CLI version whose checksums are in `scripts/cursor-checksums.txt`, `latest`, or `none` for an image without Cursor (about 540 MB smaller). |
+| `CURSOR_ALLOW_UNVERIFIED` | `0` | `1` installs a Cursor version without recorded checksums. |
 | `VERSION`        | `dev`    | Version reported by `creditapi version` and in logs.   |
 
 ```bash

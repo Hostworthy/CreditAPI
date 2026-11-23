@@ -30,8 +30,12 @@ what to do when you deploy it. For setup, see [SETUP.md](SETUP.md).
 - Client tools are only described to the CLI through a loopback endpoint with a
   random path per request. Calls are returned to the client; the server never
   executes them.
-- Request bodies are limited by `MAX_BODY_MB`, processes by `MAX_CONCURRENT` and
-  time by `REQUEST_TIMEOUT`.
+- Request bodies are limited by `MAX_BODY_MB`, waiting requests by
+  `MAX_PENDING`, processes by `MAX_CONCURRENT`, decoded image size by
+  `IMAGE_MAX_PIXELS` and time by `REQUEST_TIMEOUT`.
+- Message text cannot forge conversation structure: the tags used to lay out
+  the prompt (`<user>`, `<assistant>`, `<tool_call>`, `<tool_result>`,
+  `<instructions>`) are escaped inside client text.
 
 ## Cursor
 
@@ -46,6 +50,17 @@ so Cursor subscriptions are hardened as far as the CLI allows:
   `HOME`, `/etc`, `/proc`, `/sys`, `/root`, `/home`, `/var` and `/run`.
 - `--force` is never passed, so nothing outside the allow list is approved.
 - The only MCP server is the loopback endpoint for the client's own tools.
+
+- Each provider keeps its per-request files in its own private folder
+  (`<tmp>/creditapi-<uid>/claude` and `.../cursor`, mode `0700`); Cursor's
+  rules deny reading Claude's folder, and the Cursor CLI's own temporary files
+  go into the request's workspace.
+
+Two Cursor requests running at the same time can still read each other's
+workspace: a rule cannot allow one sibling folder and deny the rest. Only an
+operating-system sandbox would close that. The Cursor CLI has a
+`--sandbox enabled` option; it is not used yet because it has not been tested
+inside this container.
 
 These rules come from the Cursor CLI and depend on it enforcing them, so a
 Cursor subscription gives prompts more room than a Claude one. Only give Cursor
@@ -63,21 +78,32 @@ your own account before relying on it.
   rest of that window.
 - Pages are served with a strict Content Security Policy (no inline scripts),
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
-- Changing `ADMIN_PASSWORD` signs every session out.
+- Changing `ADMIN_PASSWORD`, or signing out, signs every session out.
+- The sign-in lockout counts failures per client address (per /64 for IPv6).
+  Forwarding headers are ignored unless the request comes from
+  `TRUSTED_PROXIES`, so a client cannot pretend to be someone else.
+- The server refuses to start with the example `ADMIN_PASSWORD`.
+- Sign-in links are shown only when they point to the provider's own site.
+- `/healthz` lists subscription names only to the admin.
 
 ## Outbound Requests
 
 - Image links are downloaded only when `ALLOW_IMAGE_URLS=true`, without a proxy,
   with a 20 MB limit, three redirects at most and a 30 second timeout.
-- Links that resolve to private, loopback, link-local or carrier-grade NAT
-  addresses are refused unless `ALLOW_PRIVATE_IMAGE_URLS=true`.
+- Links that resolve to private, loopback, link-local, carrier-grade NAT,
+  documentation, benchmarking or reserved addresses (IPv4 and IPv6) are refused
+  unless `ALLOW_PRIVATE_IMAGE_URLS=true`. The check runs on the address actually
+  connected to, so DNS tricks do not bypass it.
 - The Claude CLI runs with auto-updates and non-essential traffic disabled.
 - The Cursor CLI contacts Cursor's servers for every request and sign-in.
 
 ## Logs
 
 Logs never contain tokens, keys, the admin password, sign-in codes, prompts or
-responses. A redacting handler drops sensitive fields and masks anything that
+responses. Every saved or configured credential and the admin password are
+registered with the log redactor, which also cleans error messages sent to API
+clients (local paths are replaced with `<data>` and `<tmp>`, and internal
+errors only say to check the server log). A redacting handler drops sensitive fields and masks anything that
 looks like an `sk-ant-` or `sk-credit-` secret, including inside error messages.
 Cursor sign-in output shown on `/login` comes from the CLI; it contains the
 sign-in link but no credentials.
@@ -85,12 +111,19 @@ sign-in link but no credentials.
 ## Container
 
 - Runs as the unprivileged user `app` (uid 1000) with `tini` as PID 1.
+- `docker-compose.yml` drops all Linux capabilities, sets
+  `no-new-privileges`, limits processes and publishes the port on
+  `127.0.0.1` only (change it to reach the server from other devices).
 - The Claude Code binary is downloaded from Anthropic's release bucket and its
   SHA-256 checksum is verified against the release manifest at build time.
 - The Cursor CLI package is downloaded over HTTPS from Cursor's download
   server, the same package `https://cursor.com/install` uses. Cursor publishes
-  no checksums for it; pin `CURSOR_VERSION` for repeatable builds, or build
-  with `CURSOR_VERSION=none` if you do not use Cursor.
+  no checksums, so the archive is checked against SHA-256 sums recorded in
+  `scripts/cursor-checksums.txt` for the pinned version. Build with
+  `CURSOR_VERSION=none` if you do not use Cursor.
+- Base images are pinned by digest and CI actions by commit; Dependabot
+  proposes updates. CI runs `staticcheck` and `govulncheck` on every change
+  and weekly.
 
 ## Recommendations
 
@@ -105,5 +138,6 @@ sign-in link but no credentials.
 
 ## Reporting a Problem
 
-Open an issue on GitHub without including tokens, keys or logs that contain
-personal data.
+Report security problems privately through GitHub's private vulnerability
+reporting (the repository's Security tab, "Report a vulnerability"), not in a
+public issue. Do not include tokens, keys or logs that contain personal data.

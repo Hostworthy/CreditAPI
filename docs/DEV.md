@@ -57,6 +57,8 @@ key starting with `fake-cursor-key-` works too. Everything runs offline.
 | `make test` | Go unit and integration tests |
 | `make check` | tidy, format, vet and test |
 | `make ci` | Check-only: format diff, vet and race tests |
+| `make lint` | `staticcheck` and `govulncheck` at pinned versions (a CI job, also weekly) |
+| `make vuln` | `govulncheck` only |
 | `make e2e` | Server on the fake CLIs for Bruno (`.env.bruno`, fresh `data/bruno`) |
 | `make bruno` | Run the Bruno collection against a running `make e2e` stack |
 | `make e2e-ci` | Start the stack, run Bruno headless, stop it (what CI runs) |

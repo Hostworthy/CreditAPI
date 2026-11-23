@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -36,6 +37,9 @@ type LoginSpec struct {
 	Save func(token string) error
 	// Done runs after a successful sign-in.
 	Done func()
+	// URLHosts are the hosts (or parent domains) a sign-in link may point
+	// to. A link elsewhere is not shown. Empty allows any host.
+	URLHosts []string
 }
 
 // LoginState is the phase of an interactive login.
@@ -133,7 +137,7 @@ func (m *LoginManager) Start(subscription string, spec LoginSpec) (LoginStatus, 
 		case <-readDone:
 		case <-time.After(3 * time.Second):
 		}
-		ptmx.Close()
+		_ = ptmx.Close()
 		ctxErr := ctx.Err() // before cancel, which would always set it
 		cancel()
 		m.finish(gen, err, ctxErr)
@@ -143,7 +147,7 @@ func (m *LoginManager) Start(subscription string, spec LoginSpec) (LoginStatus, 
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		st := m.Status(subscription)
-		if st.URL != "" || st.State == LoginFailed || st.State == LoginSuccess {
+		if st.URL != "" || st.Error != "" || st.State == LoginFailed || st.State == LoginSuccess {
 			return st, nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -206,7 +210,12 @@ func (m *LoginManager) readLoop(gen int, r io.Reader) {
 			}
 			raw := string(m.output)
 			if m.url == "" {
-				if u := ExtractLoginURL(raw); u != "" {
+				if u := ExtractLoginURL(raw); u != "" && !hostAllowed(u, m.spec.URLHosts) {
+					if m.errMsg == "" {
+						m.errMsg = "The sign-in command printed a link to an unexpected site (" + hostOf(u) + "), so it is not shown. Please report this."
+						slog.Warn(logging.Event("login", "url", "refused"), slog.String("host", hostOf(u)))
+					}
+				} else if u != "" {
 					m.url = u
 					if m.state == LoginStarting {
 						m.state = LoginWaitBrowse
@@ -331,7 +340,7 @@ func (m *LoginManager) Status(subscription string) LoginStatus {
 	}
 	st := LoginStatus{Subscription: subscription, State: m.state, NeedsCode: m.spec.NeedsCode, URL: m.url, Error: m.errMsg}
 	if m.state != LoginIdle {
-		out := TidyOutput(string(m.output))
+		out := logging.RedactString(TidyOutput(string(m.output)))
 		if m.spec.Redact != nil {
 			out = m.spec.Redact(out)
 		}
@@ -343,4 +352,26 @@ func (m *LoginManager) Status(subscription string) LoginStatus {
 		st.StartedAt = &t
 	}
 	return st
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// hostAllowed reports whether raw points to one of hosts or a subdomain.
+func hostAllowed(raw string, hosts []string) bool {
+	if len(hosts) == 0 {
+		return true
+	}
+	h := hostOf(raw)
+	for _, allowed := range hosts {
+		if h == allowed || strings.HasSuffix(h, "."+allowed) {
+			return true
+		}
+	}
+	return false
 }

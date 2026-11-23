@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -551,4 +552,54 @@ func TestLoginCancelAndSwitch(t *testing.T) {
 		t.Fatalf("b state %q", st.State)
 	}
 	m.CancelAll()
+}
+
+func TestReadLineLimit(t *testing.T) {
+	rd := bufio.NewReaderSize(strings.NewReader("short\n"+strings.Repeat("x", 100)+"\nend"), 16)
+	if l, err := ReadLine(rd, 50); err != nil || string(l) != "short\n" {
+		t.Fatalf("%q %v", l, err)
+	}
+	if _, err := ReadLine(rd, 50); err == nil {
+		t.Fatal("a line over the limit must fail")
+	}
+	if !ValidModelName("claude-sonnet-4-5[1m]") || !ValidModelName("vendor/model:tag") || ValidModelName("-x") || ValidModelName("") {
+		t.Fatal("model name rules")
+	}
+}
+
+func TestLoginURLHostRestriction(t *testing.T) {
+	m := NewLoginManager()
+	ts := NewTokenStore(filepath.Join(t.TempDir(), "tok"), "", nil)
+	spec := codeSpec(t, ts)
+	spec.URLHosts = []string{"example.org"} // the fake prints a claude.ai link
+	st, err := m.Start("sub1", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.CancelAll()
+	deadline := time.Now().Add(5 * time.Second)
+	for st.Error == "" && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		st = m.Status("sub1")
+	}
+	if st.URL != "" || !strings.Contains(st.Error, "claude.ai") {
+		t.Fatalf("link to another host must not be shown: %+v", st)
+	}
+	if !hostAllowed("https://login.claude.ai/x", []string{"claude.ai"}) || hostAllowed("https://claude.ai.evil.example/x", []string{"claude.ai"}) {
+		t.Fatal("host matching")
+	}
+}
+
+func TestExecuteCoolsDownAfterLimits(t *testing.T) {
+	acc := testAccount(t)
+	b := &stubBackend{err: &Error{Kind: "rate_limit", Status: 429, Message: "limit"}}
+	_, _ = Execute(context.Background(), b, acc, RunOptions{}, Callbacks{})
+	if !acc.Status.CoolingDown() || acc.Status.Snapshot().CooldownUntil == nil {
+		t.Fatal("a usage limit should start a cooldown")
+	}
+	b.err = nil
+	_, _ = Execute(context.Background(), b, acc, RunOptions{}, Callbacks{})
+	if acc.Status.CoolingDown() {
+		t.Fatal("a success ends the cooldown")
+	}
 }

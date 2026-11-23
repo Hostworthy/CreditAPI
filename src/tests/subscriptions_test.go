@@ -3,6 +3,7 @@ package integration_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atb00ker/CreditAPI/src/tests/support"
 	"github.com/atb00ker/CreditAPI/src/tests/support/fakecursor"
@@ -196,5 +197,23 @@ func TestDeleteSubscriptionRemovesAccess(t *testing.T) {
 	}
 	if code, _, _ := s.Ask(key, "", "hi"); code != 403 {
 		t.Fatalf("after delete: %d", code)
+	}
+}
+
+func TestRestingSubscriptionGoesLast(t *testing.T) {
+	s := support.NewServer(t, support.Options{CursorKey: fakecursor.ValidKey})
+	s.SignIn()
+	key := s.CreateKey("app")
+	_, acc, _, err := s.App.Subs.AccountByID(s.ClaudeID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc.Status.CoolDown(time.Now().Add(time.Minute))
+	if code, got := served(t, s, key, "sonnet"); code != 200 || got != s.SubscriptionID("Cursor") {
+		t.Fatalf("Claude is resting, Cursor should answer: %d %s", code, got)
+	}
+	_, out := s.Admin("GET", "/admin/api/subscriptions/"+s.ClaudeID(), nil)
+	if out["runtime"].(map[string]any)["cooldown_until"] == nil {
+		t.Fatalf("cooldown not shown: %v", out["runtime"])
 	}
 }

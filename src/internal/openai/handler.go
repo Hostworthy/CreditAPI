@@ -10,9 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/atb00ker/CreditAPI/src/internal/agent"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
@@ -23,21 +21,31 @@ import (
 
 // Handler serves the OpenAI-compatible endpoints.
 type Handler struct {
-	cfg    *config.Config
-	keys   *keys.Store
-	subs   *subscriptions.Manager
-	slots  *agent.Slots
-	images *ImageProcessor
+	pending chan struct{} // MAX_PENDING admission
+	cfg     *config.Config
+	keys    *keys.Store
+	subs    *subscriptions.Manager
+	slots   *agent.Slots
+	images  *ImageProcessor
 }
 
 // NewHandler wires the handler.
 func NewHandler(cfg *config.Config, ks *keys.Store, subs *subscriptions.Manager, slots *agent.Slots) *Handler {
+	images := NewImageProcessor(cfg.ImageMaxDimension, cfg.AllowImageURLs, cfg.AllowPrivateImageURLs)
+	if cfg.ImageMaxPixels > 0 {
+		images.MaxPixels = cfg.ImageMaxPixels
+	}
+	pending := cfg.MaxPending
+	if pending < 1 {
+		pending = max(cfg.MaxConcurrent, 1) * 4
+	}
 	return &Handler{
-		cfg:    cfg,
-		keys:   ks,
-		subs:   subs,
-		slots:  slots,
-		images: NewImageProcessor(cfg.ImageMaxDimension, cfg.AllowImageURLs, cfg.AllowPrivateImageURLs),
+		pending: make(chan struct{}, pending),
+		cfg:     cfg,
+		keys:    ks,
+		subs:    subs,
+		slots:   slots,
+		images:  images,
 	}
 }
 
@@ -116,6 +124,14 @@ func newID() string {
 func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	key := keyFrom(r.Context())
+	select {
+	case h.pending <- struct{}{}:
+		defer func() { <-h.pending }()
+	default:
+		writeError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy",
+			"server is busy: too many requests are waiting, try again shortly (MAX_PENDING)")
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.cfg.MaxBodyBytes))
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request_too_large", "request body is too large (MAX_BODY_MB)")
@@ -163,7 +179,8 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &re) {
 			writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_messages", err.Error())
 		} else {
-			writeError(w, http.StatusInternalServerError, "api_error", "internal_error", err.Error())
+			logging.From(r.Context()).Error(logging.Event("chat", "convert", "failed"), logging.Err(err))
+			writeError(w, http.StatusInternalServerError, "api_error", "internal_error", "internal server error; the server log has the details")
 		}
 		return
 	}
@@ -207,11 +224,13 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	singleTool := req.ParallelToolCalls != nil && !*req.ParallelToolCalls
 
 	run := &attempt{h: h, cands: cands, opts: opts, stops: stops}
+	cr := chatRun{id: id, created: created, model: respModel, singleTool: singleTool, loginURL: loginURL,
+		includeUsage: req.StreamOptions != nil && req.StreamOptions.IncludeUsage}
 	var res *agent.Result
 	if req.Stream {
-		res, err = h.stream(ctx, w, run, id, created, respModel, singleTool, req.StreamOptions != nil && req.StreamOptions.IncludeUsage, loginURL)
+		res, err = h.stream(ctx, w, run, cr)
 	} else {
-		res, err = h.complete(ctx, w, run, id, created, respModel, singleTool, loginURL)
+		res, err = h.complete(ctx, w, run, cr)
 	}
 
 	log := logging.From(r.Context()).With(slog.String("key", key.Name), slog.String("model", run.served.Model),
@@ -227,177 +246,18 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		slog.Int("tool_calls", len(res.ToolCalls)), slog.Int64("prompt_tokens", in), slog.Int64("completion_tokens", out))
 }
 
-// attempt runs a request on its candidate subscriptions in order. It moves
-// to the next candidate when one fails in a way another subscription might
-// not (signed out, rate limited, overloaded, CLI failure), as long as nothing
-// has been sent to the client yet.
-type attempt struct {
-	h      *Handler
-	cands  []subscriptions.Candidate
-	opts   agent.RunOptions
-	stops  []string
-	served subscriptions.Candidate
-	tries  int
+// chatRun is what the response writers need to know about a request.
+type chatRun struct {
+	id           string
+	created      int64
+	model        string // as the client asked for it
+	singleTool   bool   // parallel_tool_calls: false
+	includeUsage bool   // stream_options.include_usage
+	loginURL     string
 }
 
-func (a *attempt) run(ctx context.Context, cb agent.Callbacks) (*agent.Result, error) {
-	emitted := false
-	wrapped := agent.Callbacks{
-		Text: func(s string) {
-			emitted = true
-			if cb.Text != nil {
-				cb.Text(s)
-			}
-		},
-		ToolStart: func(i int, id, name string) {
-			emitted = true
-			if cb.ToolStart != nil {
-				cb.ToolStart(i, id, name)
-			}
-		},
-		ToolArgs: cb.ToolArgs,
-	}
-	var signedOut []subscriptions.Candidate
-	var firstErr error
-	for _, c := range a.cands {
-		a.served = c
-		a.tries++
-		opts := a.opts
-		opts.Model = c.Model
-		res, err := agent.Execute(ctx, c.Backend, c.Account, opts, wrapped)
-		if err == nil {
-			return res, nil
-		}
-		var ce *agent.Error
-		if ctx.Err() != nil || emitted || !errors.As(err, &ce) || !ce.Retryable() {
-			return nil, err
-		}
-		if ce.Kind == "auth" {
-			signedOut = append(signedOut, c)
-		} else if firstErr == nil {
-			firstErr = err
-		}
-		logging.From(ctx).Info(logging.Event("chat", "subscription", "skipped"), slog.String("subscription", c.Sub.ID),
-			slog.String("kind", ce.Kind))
-	}
-	if len(signedOut) > 0 {
-		names := make([]string, len(signedOut))
-		for i, c := range signedOut {
-			names[i] = c.Sub.Name
-		}
-		msg := names[0] + " is signed out or its credential expired"
-		if len(names) > 1 {
-			msg = strings.Join(names, ", ") + " are signed out or their credentials expired"
-		}
-		return nil, &agent.Error{Kind: "auth", Status: 401, Subscription: signedOut[0].Sub.ID, Message: msg}
-	}
-	return nil, firstErr
-}
-
-// minOutputTokens keeps tiny max_tokens values from starving tool calls and
-// structured output.
-const minOutputTokens = 256
-
-// stopFilter truncates streamed text at the first stop sequence.
-type stopFilter struct {
-	stops  []string
-	maxLen int
-	held   string
-	hit    bool
-}
-
-func newStopFilter(stops []string) *stopFilter {
-	f := &stopFilter{stops: stops}
-	for _, s := range stops {
-		f.maxLen = max(f.maxLen, len(s))
-	}
-	return f
-}
-
-// push returns text that is safe to emit and whether a stop sequence was hit.
-func (f *stopFilter) push(s string) (string, bool) {
-	if f.hit {
-		return "", true
-	}
-	if len(f.stops) == 0 {
-		return s, false
-	}
-	buf := f.held + s
-	cut := -1
-	for _, st := range f.stops {
-		if i := strings.Index(buf, st); i >= 0 && (cut < 0 || i < cut) {
-			cut = i
-		}
-	}
-	if cut >= 0 {
-		f.hit = true
-		f.held = ""
-		return buf[:cut], true
-	}
-	keep := f.maxLen - 1
-	if keep <= 0 || len(buf) <= keep {
-		if keep <= 0 {
-			f.held = ""
-			return buf, false
-		}
-		f.held = buf
-		return "", false
-	}
-	split := len(buf) - keep
-	for split > 0 && !utf8.RuneStart(buf[split]) {
-		split--
-	}
-	f.held = buf[split:]
-	return buf[:split], false
-}
-
-func (f *stopFilter) flush() string {
-	s := f.held
-	f.held = ""
-	return s
-}
-
-func (h *Handler) runWithStops(ctx context.Context, a *attempt, cb agent.Callbacks, onText func(string)) (*agent.Result, string, error) {
-	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
-	filter := newStopFilter(a.stops)
-	var text strings.Builder
-	cb.Text = func(delta string) {
-		out, hit := filter.push(delta)
-		if out != "" {
-			text.WriteString(out)
-			if onText != nil {
-				onText(out)
-			}
-		}
-		if hit {
-			cancelRun()
-		}
-	}
-	res, err := a.run(runCtx, cb)
-	if filter.hit && ctx.Err() == nil {
-		// Stopped on purpose at a stop sequence.
-		if res == nil {
-			res = &agent.Result{}
-		}
-		res.Text = text.String()
-		res.FinishReason = "stop"
-		res.ToolCalls = nil
-		return res, text.String(), nil
-	}
-	if err != nil {
-		return nil, "", err
-	}
-	if rest := filter.flush(); rest != "" {
-		text.WriteString(rest)
-		if onText != nil {
-			onText(rest)
-		}
-	}
-	return res, text.String(), nil
-}
-
-func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, a *attempt, id string, created int64, model string, singleTool bool, loginURL string) (*agent.Result, error) {
+func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, a *attempt, out chatRun) (*agent.Result, error) {
+	id, created, model, singleTool, loginURL := out.id, out.created, out.model, out.singleTool, out.loginURL
 	res, text, err := h.runWithStops(ctx, a, agent.Callbacks{}, nil)
 	if err != nil {
 		h.fail(w, err, loginURL)
@@ -408,6 +268,10 @@ func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, a *attemp
 	switch {
 	case res.StructuredOutput != nil:
 		s := string(res.StructuredOutput)
+		msg.Content = &s
+	case a.opts.JSONObject && res.Text != "":
+		// No JSON found: send what the model said rather than nothing.
+		s := res.Text
 		msg.Content = &s
 	case text != "" || len(res.ToolCalls) == 0:
 		msg.Content = &text
@@ -435,185 +299,4 @@ func toUsage(u agent.Usage) *Usage {
 		TotalTokens:         p + u.OutputTokens,
 		PromptTokensDetails: &PromptTokensDetails{CachedTokens: u.CacheReadTokens},
 	}
-}
-
-type sseWriter struct {
-	mu sync.Mutex
-	w  http.ResponseWriter
-	f  http.Flusher
-}
-
-func (s *sseWriter) data(v any) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, _ = s.w.Write([]byte("data: "))
-	_, _ = s.w.Write(b)
-	_, _ = s.w.Write([]byte("\n\n"))
-	s.f.Flush()
-}
-
-func (s *sseWriter) raw(line string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, _ = s.w.Write([]byte(line))
-	s.f.Flush()
-}
-
-func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, a *attempt, id string, created int64, model string, singleTool, includeUsage bool, loginURL string) (*agent.Result, error) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		err := errors.New("streaming not supported by this connection")
-		writeError(w, http.StatusInternalServerError, "api_error", "no_streaming", err.Error())
-		return nil, err
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	sse := &sseWriter{w: w, f: flusher}
-
-	chunk := func(delta *ResponseMsg, finish *string) map[string]any {
-		return map[string]any{
-			"id": id, "object": "chat.completion.chunk", "created": created, "model": model,
-			"choices": []Choice{{Index: 0, Delta: delta, FinishReason: finish, Logprobs: json.RawMessage("null")}},
-		}
-	}
-	empty := ""
-	sse.data(chunk(&ResponseMsg{Role: "assistant", Content: &empty}, nil))
-
-	// Keep proxies from closing an idle connection while the model thinks.
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		t := time.NewTicker(15 * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-t.C:
-				sse.raw(": keep-alive\n\n")
-			case <-done:
-				return
-			}
-		}
-	}()
-
-	cb := agent.Callbacks{
-		ToolStart: func(index int, callID, name string) {
-			if singleTool && index > 0 {
-				return
-			}
-			i := index
-			sse.data(chunk(&ResponseMsg{ToolCalls: []ToolCallMsg{{Index: &i, ID: callID, Type: "function", Function: FunctionCall{Name: name, Arguments: ""}}}}, nil))
-		},
-		ToolArgs: func(index int, delta string) {
-			if singleTool && index > 0 {
-				return
-			}
-			i := index
-			sse.data(chunk(&ResponseMsg{ToolCalls: []ToolCallMsg{{Index: &i, Function: FunctionCall{Arguments: delta}}}}, nil))
-		},
-	}
-	onText := func(s string) {
-		sse.data(chunk(&ResponseMsg{Content: &s}, nil))
-	}
-	res, _, err := h.runWithStops(ctx, a, cb, onText)
-	if err != nil {
-		if ctx.Err() == nil {
-			_, typ, code, msg := describeError(err, loginURL)
-			sse.data(ErrorBody{Error: ErrorDetail{Message: msg, Type: typ, Code: &code}})
-			sse.raw("data: [DONE]\n\n")
-		}
-		return nil, err
-	}
-	if res.StructuredOutput != nil {
-		s := string(res.StructuredOutput)
-		sse.data(chunk(&ResponseMsg{Content: &s}, nil))
-	} else if a.opts.JSONObject && res.Text != "" {
-		// JSON mode buffers the reply; send it even if no JSON was found.
-		s := res.Text
-		sse.data(chunk(&ResponseMsg{Content: &s}, nil))
-	}
-	finish := res.FinishReason
-	sse.data(chunk(&ResponseMsg{}, &finish))
-	if includeUsage {
-		sse.data(map[string]any{
-			"id": id, "object": "chat.completion.chunk", "created": created, "model": model,
-			"choices": []Choice{}, "usage": toUsage(res.Usage),
-		})
-	}
-	sse.raw("data: [DONE]\n\n")
-	return res, nil
-}
-
-// loginURL is the address of the /login page shown in "login required"
-// errors: PUBLIC_URL when set, otherwise the address the client used.
-func (h *Handler) loginURL(r *http.Request) string {
-	if h.cfg.PublicURL != "" {
-		return h.cfg.PublicURL + "/login"
-	}
-	scheme := "http"
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		scheme = "https"
-	}
-	host := r.Host
-	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
-		host = strings.TrimSpace(strings.Split(fh, ",")[0])
-	}
-	return scheme + "://" + host + "/login"
-}
-
-func describeError(err error, loginURL string) (status int, typ, code, msg string) {
-	var ce *agent.Error
-	if errors.As(err, &ce) {
-		switch ce.Kind {
-		case "auth":
-			// 401 so OpenAI SDKs do not retry; the message carries the link.
-			link := loginURL
-			if ce.Subscription != "" {
-				link += "?subscription=" + ce.Subscription
-			}
-			return http.StatusUnauthorized, "authentication_error", "subscription_login_required",
-				"Sign-in required: " + ce.Message + ". Sign in at " + link + " and then try again."
-		case "forbidden":
-			return http.StatusForbidden, "permission_error", "no_subscription", ce.Message
-		case "not_found":
-			return http.StatusNotFound, "invalid_request_error", "model_not_found", ce.Message
-		case "rate_limit":
-			return ce.Status, "rate_limit_error", "rate_limit_exceeded", ce.Message
-		case "busy":
-			return ce.Status, "rate_limit_error", "server_busy", ce.Message
-		case "overloaded":
-			return ce.Status, "service_unavailable", "overloaded", ce.Message
-		case "invalid_request":
-			return ce.Status, "invalid_request_error", "invalid_request", ce.Message
-		}
-		return ce.Status, "api_error", "upstream_error", ce.Message
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return http.StatusGatewayTimeout, "api_error", "timeout", "request timed out (REQUEST_TIMEOUT)"
-	}
-	return http.StatusInternalServerError, "api_error", "internal_error", err.Error()
-}
-
-func (h *Handler) fail(w http.ResponseWriter, err error, loginURL string) {
-	if errors.Is(err, context.Canceled) {
-		return // client went away
-	}
-	status, typ, code, msg := describeError(err, loginURL)
-	writeError(w, status, typ, code, msg)
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeError(w http.ResponseWriter, status int, typ, code, msg string) {
-	writeJSON(w, status, ErrorBody{Error: ErrorDetail{Message: msg, Type: typ, Code: &code}})
 }

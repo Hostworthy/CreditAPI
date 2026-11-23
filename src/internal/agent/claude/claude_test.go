@@ -303,3 +303,27 @@ func TestLoginSpec(t *testing.T) {
 		t.Fatalf("version %q", v)
 	}
 }
+
+func TestRunCrashMidAnswerIsAnError(t *testing.T) {
+	b, acc, _ := newTestBackend(t, "truncated", "tok")
+	res, err := b.Run(context.Background(), acc, agent.RunOptions{Model: "sonnet", Content: text("x")}, agent.Callbacks{})
+	var ce *agent.Error
+	if !errors.As(err, &ce) || !strings.Contains(ce.Message, "before finishing") {
+		t.Fatalf("a reply cut off by a crash must be an error, got %+v %v", res, err)
+	}
+}
+
+func TestRunFilesStayInPrivateRunRoot(t *testing.T) {
+	root := agent.RunRootPath(Provider)
+	b, acc, record := newTestBackend(t, "text", "tok")
+	if _, err := b.Run(context.Background(), acc, agent.RunOptions{Model: "sonnet", Content: text("x")}, agent.Callbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(readRecord(t, record).Args, " ")
+	if !strings.Contains(args, root+"/run-") {
+		t.Fatalf("system prompt file should be under %s: %s", root, args)
+	}
+	if fi, err := os.Stat(root); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("run root %v %v", fi, err)
+	}
+}

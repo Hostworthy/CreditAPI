@@ -6,12 +6,21 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8080:8080"
+      # Reachable from this computer only (for example behind Nginx). Use "8080:8080" to reach it from
+      # other devices on your network (for example your phone).
+      - "127.0.0.1:8080:8080"
     volumes:
       # Keys, subscriptions, saved logins and CLI state live here.
       - creditapi-data:/data
     # Each request runs one CLI process (roughly 250-350 MB while active).
     mem_limit: 1536m
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Untested with the real CLIs; try it if you want a read-only image:
+    # read_only: true
+    # tmpfs: [/tmp]
 
     # To let apps in other compose projects reach this container by name,
     # join their network:

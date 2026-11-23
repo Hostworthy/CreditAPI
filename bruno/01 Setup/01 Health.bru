@@ -21,7 +21,10 @@ assert {
 tests {
   test("reports ok and each subscription", function () {
     expect(res.body.ok).to.equal(true);
-    expect(res.body.subscriptions).to.be.an("array");
+    expect(res.body.subscription_count).to.be.a("number");
+  });
+  test("does not list subscriptions without the admin password", function () {
+    expect(res.body.subscriptions).to.equal(undefined);
   });
   test("echoes the request id", function () {
     expect(res.headers["x-request-id"]).to.equal("bruno-health-check");

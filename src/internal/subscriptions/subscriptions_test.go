@@ -261,6 +261,14 @@ func TestCandidates(t *testing.T) {
 	}
 
 	var ce *agent.Error
+	for _, bad := range []string{"-x", "a b", "--model=opus", strings.Repeat("m", 200)} {
+		if _, err := m.Candidates("k1", bad); !errors.As(err, &ce) || ce.Kind != "invalid_model" || ce.Status != 400 {
+			t.Errorf("model %q: %v", bad, err)
+		}
+	}
+	if _, err := m.Candidates("k1", "cursor-personal/nope"); !errors.As(err, &ce) || ce.Status != 404 {
+		t.Fatalf("pinned unknown model: %v", err)
+	}
 	if _, err := m.Candidates("k1", "claude-company/opus"); !errors.As(err, &ce) || ce.Status != 403 {
 		t.Fatalf("pin to a subscription the key may not use: %v", err)
 	}
@@ -404,5 +412,20 @@ func TestBootstrapFreshInstall(t *testing.T) {
 	m.DetectVersions(context.Background())
 	if m.Version("cursor") != "1.0" {
 		t.Fatalf("version %q", m.Version("cursor"))
+	}
+}
+
+func TestPruneKeys(t *testing.T) {
+	st, _ := openStore(t)
+	scenario(t, st)
+	n, err := st.PruneKeys(map[string]bool{"k1": true, "k2": true})
+	if err != nil || n != 5 { // k3 once, k4 and k5 twice each
+		t.Fatalf("removed %d %v", n, err)
+	}
+	if got := ids(st.ForKey("k4")); len(got) != 0 {
+		t.Fatalf("k4 still granted: %v", got)
+	}
+	if n, _ := st.PruneKeys(map[string]bool{"k1": true, "k2": true}); n != 0 {
+		t.Fatal("second prune should find nothing")
 	}
 }

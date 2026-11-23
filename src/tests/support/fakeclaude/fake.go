@@ -275,6 +275,10 @@ func runScripted(scenario string, inv *invocation) int {
 	emitInit(inv)
 	messageStart(inv.model, 10)
 	switch scenario {
+	case "truncated":
+		textBlock(0, []string{"Partial ans"}, 0)
+		fmt.Fprintln(os.Stderr, "fakeclaude: killed mid-answer")
+		return 3
 	case "text", "slow":
 		parts := []string{"Hello", " wor", "ld"}
 		delay := time.Duration(0)

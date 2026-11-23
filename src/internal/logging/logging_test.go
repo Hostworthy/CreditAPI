@@ -124,3 +124,12 @@ func TestRequestIDContext(t *testing.T) {
 		t.Fatalf("request id missing: %s", buf.String())
 	}
 }
+
+func TestRegisteredSecretsAreRedacted(t *testing.T) {
+	RegisterSecret("short")
+	RegisterSecret("crsr_live_0123456789abcdef")
+	got := RedactString("auth failed for key crsr_live_0123456789abcdef (short)")
+	if strings.Contains(got, "crsr_live") || !strings.Contains(got, "short") {
+		t.Fatalf("%q", got)
+	}
+}

@@ -7,7 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 // TokenStore holds one account's credential: an OAuth token or API key saved
@@ -28,8 +29,10 @@ type TokenStore struct {
 // checks credentials passed to Save (nil accepts anything non-empty).
 func NewTokenStore(path, envToken string, validate func(string) error) *TokenStore {
 	ts := &TokenStore{path: path, envToken: strings.TrimSpace(envToken), validate: validate}
+	logging.RegisterSecret(ts.envToken)
 	if b, err := os.ReadFile(path); err == nil {
 		ts.saved = strings.TrimSpace(string(b))
+		logging.RegisterSecret(ts.saved)
 		if fi, err := os.Stat(path); err == nil {
 			ts.savedAt = fi.ModTime()
 		}
@@ -77,7 +80,8 @@ func (t *TokenStore) Save(token string) error {
 			return err
 		}
 	}
-	if err := keys.WriteFileAtomic(t.path, []byte(token+"\n"), 0o600); err != nil {
+	logging.RegisterSecret(token)
+	if err := fsutil.WriteFileAtomic(t.path, []byte(token+"\n"), 0o600); err != nil {
 		return err
 	}
 	t.mu.Lock()

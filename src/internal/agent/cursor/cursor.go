@@ -23,17 +23,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/atb00ker/CreditAPI/src/internal/agent"
-	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 // Provider is the identifier stored with Cursor subscriptions.
-const Provider = "cursor"
+const Provider = agent.ProviderCursor
 
 // maxArgPrompt keeps the prompt argument well under Linux's 128 KiB limit
 // for a single argument; longer prompts are passed as a file.
@@ -107,6 +108,8 @@ func (b *Backend) Login(acc *agent.Account) agent.LoginSpec {
 		Args: []string{"login"},
 		Env:  loginEnv(acc),
 		Done: acc.Tokens.Touch,
+		// Unconfirmed against the real CLI; the documented sign-in host.
+		URLHosts: []string{"cursor.com", "cursor.sh"},
 	}
 }
 
@@ -163,7 +166,7 @@ func (b *Backend) harden(acc *agent.Account, ws string) error {
 	cfg["permissions"] = perms
 	cfg["approvalMode"] = "allowlist"
 	out, _ := json.MarshalIndent(cfg, "", "  ")
-	return keys.WriteFileAtomic(path, out, 0o600)
+	return fsutil.WriteFileAtomic(path, out, 0o600)
 }
 
 // --- prompt ----------------------------------------------------------------------
@@ -180,6 +183,8 @@ func extension(mediaType string) string {
 	return ".jpg"
 }
 
+var closeInstructionsRe = regexp.MustCompile(`(?i)<(\s*/\s*instructions)`)
+
 // buildPrompt renders instructions and the conversation as one prompt. Images
 // are written to ./attachments and referenced by path. Prompts too long for a
 // command-line argument are written to ./conversation.md.
@@ -189,7 +194,11 @@ func buildPrompt(ws string, opts agent.RunOptions) (string, error) {
 	for _, blk := range opts.Content {
 		switch blk.Type {
 		case "text":
-			conv.WriteString(blk.Text)
+			if opts.Transcript {
+				conv.WriteString(blk.Text) // already escaped by the transcript builder
+			} else {
+				conv.WriteString(agent.EscapeTags(blk.Text))
+			}
 		case "image":
 			if blk.Source == nil {
 				continue
@@ -217,7 +226,9 @@ func buildPrompt(ws string, opts agent.RunOptions) (string, error) {
 
 	var p strings.Builder
 	p.WriteString("<instructions>\n")
-	p.WriteString(strings.TrimSpace(opts.SystemPrompt))
+	// The instructions may mention tags; only a closing </instructions>
+	// could break the structure, so only that is neutralized.
+	p.WriteString(closeInstructionsRe.ReplaceAllString(strings.TrimSpace(opts.SystemPrompt), "&lt;$1"))
 	p.WriteString("\n</instructions>\n\n")
 	p.WriteString("You are answering a chat request through an API. Reply to the user directly. Do not create, edit or run anything.")
 	if len(opts.Tools) > 0 {
@@ -287,7 +298,11 @@ func newCallID() string {
 
 // Run implements agent.Backend.
 func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOptions, cb agent.Callbacks) (*agent.Result, error) {
-	ws, err := os.MkdirTemp("", "creditapi-cursor-")
+	root, err := agent.RunRoot(Provider)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := os.MkdirTemp(root, "run-")
 	if err != nil {
 		return nil, err
 	}
@@ -317,11 +332,12 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	}
 	args = append(args, prompt)
 
-	env := append(acc.Env(b), "NO_OPEN_BROWSER=1")
+	// TMPDIR keeps the CLI's own temporary files inside this run's workspace.
+	env := append(acc.Env(b), "NO_OPEN_BROWSER=1", "TMPDIR="+ws)
 	start := time.Now()
 	proc, err := agent.StartProc(ctx, b.Bin, args, env, ws, nil)
 	if err != nil {
-		return nil, &agent.Error{Kind: "upstream", Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
+		return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
 	}
 
 	var textMu sync.Mutex
@@ -347,44 +363,14 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	case first := <-calls:
 		// The model wants the client to run a tool. Collect any parallel
 		// calls, then stop the CLI and hand them back.
-		pending := []agent.BridgeCall{first}
-		timer := time.NewTimer(toolGrace)
-	collect:
-		for {
-			select {
-			case c := <-calls:
-				pending = append(pending, c)
-			case <-timer.C:
-				break collect
-			}
-		}
+		pending := collectCalls(first, calls)
 		proc.Kill()
 		<-done
 		_ = proc.Wait()
 		textMu.Lock()
 		text := streamed.String()
 		textMu.Unlock()
-		res := &agent.Result{Text: text, FinishReason: "tool_calls", Model: opts.Model}
-		for i, c := range pending {
-			name := c.Name
-			if orig, ok := opts.ToolNames[name]; ok {
-				name = orig
-			}
-			argsJSON := strings.TrimSpace(string(c.Arguments))
-			if argsJSON == "" || argsJSON == "null" {
-				argsJSON = "{}"
-			}
-			call := agent.ToolCall{ID: newCallID(), Name: name, Arguments: argsJSON}
-			res.ToolCalls = append(res.ToolCalls, call)
-			if cb.ToolStart != nil {
-				cb.ToolStart(i, call.ID, call.Name)
-			}
-			if cb.ToolArgs != nil {
-				cb.ToolArgs(i, call.Arguments)
-			}
-		}
-		res.Usage = agent.Usage{InputTokens: agent.EstimateTokens(prompt), OutputTokens: agent.EstimateTokens(text) + 20*int64(len(pending))}
-		return res, nil
+		return toolCallResult(pending, text, prompt, opts, cb), nil
 	}
 	waitErr := proc.Wait()
 	if ctx.Err() != nil {
@@ -411,7 +397,7 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	case len(opts.JSONSchema) > 0:
 		j := agent.ExtractJSON(res.Text)
 		if j == nil {
-			return nil, &agent.Error{Kind: "upstream", Status: 502, Message: "Cursor did not return the requested structured JSON output"}
+			return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: "Cursor did not return the requested structured JSON output"}
 		}
 		res.StructuredOutput = j
 	case opts.JSONObject:
@@ -423,6 +409,47 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	return res, nil
 }
 
+// collectCalls waits briefly for parallel tool calls after the first one.
+func collectCalls(first agent.BridgeCall, calls <-chan agent.BridgeCall) []agent.BridgeCall {
+	pending := []agent.BridgeCall{first}
+	timer := time.NewTimer(toolGrace)
+	defer timer.Stop()
+	for {
+		select {
+		case c := <-calls:
+			pending = append(pending, c)
+		case <-timer.C:
+			return pending
+		}
+	}
+}
+
+// toolCallResult turns the calls that reached the bridge into an OpenAI
+// tool_calls result, restoring the client's tool names.
+func toolCallResult(pending []agent.BridgeCall, text, prompt string, opts agent.RunOptions, cb agent.Callbacks) *agent.Result {
+	res := &agent.Result{Text: text, FinishReason: "tool_calls", Model: opts.Model}
+	for i, c := range pending {
+		name := c.Name
+		if orig, ok := opts.ToolNames[name]; ok {
+			name = orig
+		}
+		argsJSON := strings.TrimSpace(string(c.Arguments))
+		if argsJSON == "" || argsJSON == "null" {
+			argsJSON = "{}"
+		}
+		call := agent.ToolCall{ID: newCallID(), Name: name, Arguments: argsJSON}
+		res.ToolCalls = append(res.ToolCalls, call)
+		if cb.ToolStart != nil {
+			cb.ToolStart(i, call.ID, call.Name)
+		}
+		if cb.ToolArgs != nil {
+			cb.ToolArgs(i, call.Arguments)
+		}
+	}
+	res.Usage = agent.Usage{InputTokens: agent.EstimateTokens(prompt), OutputTokens: agent.EstimateTokens(text) + 20*int64(len(pending))}
+	return res
+}
+
 // parse reads the stream-json events. With --stream-partial-output, text
 // deltas carry timestamp_ms and no model_call_id; other assistant events are
 // buffered duplicates and are only used when no deltas arrived.
@@ -432,7 +459,7 @@ func (b *Backend) parse(stdout io.Reader, emit func(string)) (*agent.Result, err
 	sawDelta := false
 	rd := bufio.NewReaderSize(stdout, 256<<10)
 	for {
-		line, err := rd.ReadBytes('\n')
+		line, err := agent.ReadLine(rd, agent.MaxLineBytes)
 		if len(bytes.TrimSpace(line)) > 0 {
 			var ev event
 			if jerr := json.Unmarshal(line, &ev); jerr != nil {

@@ -1,0 +1,38 @@
+meta {
+  name: Invalid model name is rejected
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "--not-a-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("invalid_model", function () {
+    expect(res.body.error.code).to.equal("invalid_model");
+    expect(res.body.error.type).to.equal("invalid_request_error");
+  });
+}

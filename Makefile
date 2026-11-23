@@ -1,8 +1,10 @@
-.PHONY: help install update upgrade dev kill build fake test check ci e2e bruno e2e-ci docker clean
+.PHONY: help install update upgrade dev kill build fake test check ci lint vuln e2e bruno e2e-ci docker clean
 
 -include .env
 
 BRU ?= npx --yes @usebruno/cli@4
+STATICCHECK ?= go run honnef.co/go/tools/cmd/staticcheck@v0.8.2
+GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@v1.10.0
 
 help:
 	@echo "Targets:"
@@ -16,6 +18,8 @@ help:
 	@echo "  test         Run Go unit and integration tests"
 	@echo "  check        tidy, format, vet, and test"
 	@echo "  ci           Check-only: format diff, vet, and race tests"
+	@echo "  lint         staticcheck and govulncheck (what the CI lint job runs)"
+	@echo "  vuln         govulncheck only"
 	@echo "  e2e          Run the server with the fake CLIs for Bruno (.env.bruno)"
 	@echo "  bruno        Run the Bruno collection against a running e2e stack"
 	@echo "  e2e-ci       Start the e2e stack, run Bruno headless, stop it (used by CI)"
@@ -59,6 +63,13 @@ ci:
 	@test -z "$$(gofmt -l src)" || (echo 'gofmt needed:' && gofmt -l src && exit 1)
 	go vet ./...
 	go test -race ./...
+
+lint:
+	$(STATICCHECK) ./...
+	$(GOVULNCHECK) ./...
+
+vuln:
+	$(GOVULNCHECK) ./...
 
 e2e: fake
 	@test -f .env.bruno || (echo 'copy .env.bruno.example to .env.bruno' >&2; exit 1)

@@ -290,7 +290,7 @@ func (inv *invocation) record() {
 
 // checkHardening verifies the deny rules the server must set up.
 func (inv *invocation) checkHardening() error {
-	if slices.Contains(inv.args, "--force") || slices.Contains(inv.args, "-f") {
+	if slices.Contains(inv.args, "--force") || slices.Contains(inv.args, "-f") || slices.Contains(inv.args, "--yolo") {
 		return fmt.Errorf("--force must never be passed")
 	}
 	var project struct {

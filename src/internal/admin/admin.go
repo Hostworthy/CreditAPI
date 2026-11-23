@@ -15,7 +15,6 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,6 +26,9 @@ import (
 
 	"github.com/atb00ker/CreditAPI/src/internal/agent"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/forwarded"
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
+	"github.com/atb00ker/CreditAPI/src/internal/httpx"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
 	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
@@ -42,37 +44,56 @@ const (
 
 // Admin wires the admin UI and API.
 type Admin struct {
-	cfg     *config.Config
-	keys    *keys.Store
-	subs    *subscriptions.Manager
-	slots   *agent.Slots
-	hmacKey []byte
-	limiter *limiter
-	checkMu sync.Mutex // one login check at a time
+	cfg        *config.Config
+	keys       *keys.Store
+	subs       *subscriptions.Manager
+	slots      *agent.Slots
+	keyMu      sync.RWMutex
+	hmacKey    []byte
+	secretPath string
+	limiter    *limiter
+	checkMu    sync.Mutex // one login check at a time
 }
 
 // New creates the admin handlers. The session signing key is derived from a
 // random per-installation secret plus ADMIN_PASSWORD, so changing the
 // password signs everyone out.
 func New(cfg *config.Config, ks *keys.Store, subs *subscriptions.Manager, slots *agent.Slots) (*Admin, error) {
-	secretPath := filepath.Join(cfg.DataDir, "session-secret")
-	secret, err := os.ReadFile(secretPath)
-	if err != nil || len(secret) < 32 {
-		secret = make([]byte, 32)
-		if _, err := rand.Read(secret); err != nil {
-			return nil, err
-		}
-		if err := keys.WriteFileAtomic(secretPath, secret, 0o600); err != nil {
-			return nil, err
-		}
-	}
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(cfg.AdminPassword))
-	return &Admin{
+	a := &Admin{
 		cfg: cfg, keys: ks, subs: subs, slots: slots,
-		hmacKey: mac.Sum(nil),
-		limiter: &limiter{fails: map[string][]time.Time{}},
-	}, nil
+		secretPath: filepath.Join(cfg.DataDir, "session-secret"),
+		limiter:    &limiter{fails: map[string][]time.Time{}},
+	}
+	secret, err := os.ReadFile(a.secretPath)
+	if err != nil || len(secret) < 32 {
+		if err := a.rotateSecret(); err != nil {
+			return nil, err
+		}
+		return a, nil
+	}
+	a.setKey(secret)
+	return a, nil
+}
+
+// rotateSecret replaces the session secret, which signs every session out.
+func (a *Admin) rotateSecret() error {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return err
+	}
+	if err := fsutil.WriteFileAtomic(a.secretPath, secret, 0o600); err != nil {
+		return err
+	}
+	a.setKey(secret)
+	return nil
+}
+
+func (a *Admin) setKey(secret []byte) {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(a.cfg.AdminPassword))
+	a.keyMu.Lock()
+	a.hmacKey = mac.Sum(nil)
+	a.keyMu.Unlock()
 }
 
 // Register adds all admin routes.
@@ -126,10 +147,15 @@ func (a *Admin) page(static fs.FS, name string) http.HandlerFunc {
 
 // --- sessions ----------------------------------------------------------------
 
-func (a *Admin) sign(exp int64) string {
+// sign returns a session value "expiry.nonce.mac". The nonce makes every
+// session unique.
+func (a *Admin) sign(exp int64, nonce string) string {
+	payload := strconv.FormatInt(exp, 10) + "." + nonce
+	a.keyMu.RLock()
 	mac := hmac.New(sha256.New, a.hmacKey)
-	mac.Write([]byte(strconv.FormatInt(exp, 10)))
-	return strconv.FormatInt(exp, 10) + "." + hex.EncodeToString(mac.Sum(nil))
+	a.keyMu.RUnlock()
+	mac.Write([]byte(payload))
+	return payload + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
 func (a *Admin) validCookie(r *http.Request) bool {
@@ -137,35 +163,46 @@ func (a *Admin) validCookie(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	expStr, _, ok := strings.Cut(c.Value, ".")
-	if !ok {
+	parts := strings.Split(c.Value, ".")
+	if len(parts) != 3 {
 		return false
 	}
-	exp, err := strconv.ParseInt(expStr, 10, 64)
+	exp, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || time.Now().Unix() > exp {
 		return false
 	}
-	return hmac.Equal([]byte(a.sign(exp)), []byte(c.Value))
+	return hmac.Equal([]byte(a.sign(exp, parts[1])), []byte(c.Value))
 }
 
+// passwordOK compares digests so the comparison takes the same time
+// whatever the length of the guess.
 func (a *Admin) passwordOK(p string) bool {
-	return subtle.ConstantTimeCompare([]byte(p), []byte(a.cfg.AdminPassword)) == 1
+	got := sha256.Sum256([]byte(p))
+	want := sha256.Sum256([]byte(a.cfg.AdminPassword))
+	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 
-func secureRequest(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-}
-
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+// Authorized reports whether the request carries a valid admin session or
+// the admin password as a bearer token. It does not count failures.
+func (a *Admin) Authorized(r *http.Request) bool {
+	if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		return a.passwordOK(strings.TrimSpace(bearer))
 	}
-	return host
+	return a.validCookie(r)
+}
+
+// secure reports whether cookies should be marked Secure: the request came
+// over HTTPS (directly or through a trusted proxy), or PUBLIC_URL is HTTPS.
+func (a *Admin) secure(r *http.Request) bool {
+	return a.cfg.TrustedProxies.HTTPS(r) || strings.HasPrefix(a.cfg.PublicURL, "https://")
+}
+
+func (a *Admin) clientKey(r *http.Request) string {
+	return forwarded.LimitKey(a.cfg.TrustedProxies.ClientIP(r))
 }
 
 // sameOrigin rejects cross-site requests that carry the session cookie.
-func sameOrigin(r *http.Request) bool {
+func (a *Admin) sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
@@ -174,14 +211,20 @@ func sameOrigin(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return u.Host == r.Host || (r.Header.Get("X-Forwarded-Host") != "" && u.Host == r.Header.Get("X-Forwarded-Host"))
+	if u.Host == r.Host || u.Host == a.cfg.TrustedProxies.Host(r) {
+		return true
+	}
+	if pu, err := url.Parse(a.cfg.PublicURL); err == nil && pu.Host != "" && u.Host == pu.Host {
+		return true
+	}
+	return false
 }
 
 func (a *Admin) require(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
-			ip := clientIP(r)
+			ip := a.clientKey(r)
 			if a.limiter.blocked(ip) {
 				jsonError(w, http.StatusTooManyRequests, "too many failed attempts, wait a few minutes")
 				return
@@ -198,7 +241,7 @@ func (a *Admin) require(next http.HandlerFunc) http.HandlerFunc {
 			jsonError(w, http.StatusUnauthorized, "not signed in")
 			return
 		}
-		if r.Method != http.MethodGet && !sameOrigin(r) {
+		if r.Method != http.MethodGet && !a.sameOrigin(r) {
 			jsonError(w, http.StatusForbidden, "cross-origin request refused")
 			return
 		}
@@ -207,8 +250,8 @@ func (a *Admin) require(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (a *Admin) createSession(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
-	if !sameOrigin(r) {
+	ip := a.clientKey(r)
+	if !a.sameOrigin(r) {
 		jsonError(w, http.StatusForbidden, "cross-origin request refused")
 		return
 	}
@@ -219,8 +262,7 @@ func (a *Admin) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Password string `json:"password"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	if !a.passwordOK(body.Password) {
@@ -231,15 +273,24 @@ func (a *Admin) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exp := time.Now().Add(sessionTTL).Unix()
+	nonce := make([]byte, 16)
+	_, _ = rand.Read(nonce)
 	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Value: a.sign(exp), Path: "/", MaxAge: int(sessionTTL.Seconds()),
-		HttpOnly: true, Secure: secureRequest(r), SameSite: http.SameSiteStrictMode,
+		Name: cookieName, Value: a.sign(exp, hex.EncodeToString(nonce)), Path: "/", MaxAge: int(sessionTTL.Seconds()),
+		HttpOnly: true, Secure: a.secure(r), SameSite: http.SameSiteStrictMode,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// deleteSession signs out. Sessions are not stored, so the only way to make
+// a copied cookie useless is a new secret: this signs every device out.
 func (a *Admin) deleteSession(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: secureRequest(r), SameSite: http.SameSiteStrictMode})
+	if a.validCookie(r) && a.sameOrigin(r) {
+		if err := a.rotateSecret(); err != nil {
+			logging.From(r.Context()).Error(logging.Event("admin", "signout", "failed"), logging.Err(err))
+		}
+	}
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: a.secure(r), SameSite: http.SameSiteStrictMode})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -303,8 +354,7 @@ func (a *Admin) createKey(w http.ResponseWriter, r *http.Request) {
 		Name          string    `json:"name"`
 		Subscriptions *[]string `json:"subscriptions"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	var grants []string
@@ -325,6 +375,7 @@ func (a *Admin) createKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.subs.Store.SetKeyGrants(k.ID, grants); err != nil {
+		_ = a.keys.Delete(k.ID) // do not leave a key without its grants
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -338,8 +389,7 @@ func (a *Admin) updateKey(w http.ResponseWriter, r *http.Request) {
 		Disabled      *bool     `json:"disabled"`
 		Subscriptions *[]string `json:"subscriptions"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	id := r.PathValue("id")
@@ -388,25 +438,31 @@ func (a *Admin) deleteKey(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers -----------------------------------------------------------------
 
-func readJSON(r *http.Request, v any) error {
-	b, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+// readJSON decodes a small JSON body (at most 64 KiB, read within 15
+// seconds). On failure it writes the error response and returns false.
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(15 * time.Second))
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 	if err != nil {
-		return err
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			jsonError(w, http.StatusRequestEntityTooLarge, "request body is too large (max 64 KB)")
+		} else {
+			jsonError(w, http.StatusBadRequest, "could not read the request body")
+		}
+		return false
 	}
 	if len(strings.TrimSpace(string(b))) == 0 {
-		return nil
+		return true
 	}
 	if err := json.Unmarshal(b, v); err != nil {
-		return errors.New("invalid JSON body")
+		jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return false
 	}
-	return nil
+	return true
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
+func writeJSON(w http.ResponseWriter, status int, v any) { httpx.WriteJSON(w, status, v) }
 
 func jsonError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{"error": msg})
@@ -445,8 +501,22 @@ func (l *limiter) blocked(ip string) bool {
 	return len(l.prune(ip)) >= maxFails
 }
 
+// maxTracked bounds the limiter's memory when many addresses fail.
+const maxTracked = 10_000
+
 func (l *limiter) fail(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if _, known := l.fails[ip]; !known && len(l.fails) >= maxTracked {
+		for k := range l.fails {
+			l.prune(k)
+		}
+		for k := range l.fails {
+			if len(l.fails) < maxTracked {
+				break
+			}
+			delete(l.fails, k) // arbitrary eviction keeps memory bounded
+		}
+	}
 	l.fails[ip] = append(l.prune(ip), time.Now())
 }

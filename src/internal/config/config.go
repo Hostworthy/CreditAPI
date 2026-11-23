@@ -7,9 +7,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atb00ker/CreditAPI/src/internal/forwarded"
 )
 
 // Config holds every runtime setting. All values come from the environment
@@ -22,6 +25,9 @@ type Config struct {
 	// PublicURL is how users reach this server (e.g. https://claude.example.com).
 	// It is used for the login link in "login required" errors.
 	PublicURL string
+	// TrustedProxies are proxies whose X-Forwarded-* headers are believed
+	// (TRUSTED_PROXIES). Empty means forwarding headers are ignored.
+	TrustedProxies *forwarded.Trust
 
 	ClaudeBin string
 
@@ -39,10 +45,14 @@ type Config struct {
 
 	DefaultSystemPrompt string
 	MaxConcurrent       int
-	QueueTimeout        time.Duration
-	RequestTimeout      time.Duration
+	// MaxPending limits chat requests admitted at once (running plus
+	// waiting for a slot), which bounds memory held by queued requests.
+	MaxPending     int
+	QueueTimeout   time.Duration
+	RequestTimeout time.Duration
 
 	ImageMaxDimension     int
+	ImageMaxPixels        int64
 	MaxImages             int
 	AllowImageURLs        bool
 	AllowPrivateImageURLs bool
@@ -54,14 +64,18 @@ type Config struct {
 // OwnEnvVars are consumed by this server and never forwarded to the CLI
 // subprocesses (credentials are passed per subscription).
 var OwnEnvVars = []string{
-	"ADMIN_PASSWORD", "HOST", "PORT", "DATA_DIR", "ENV_CREDITAPI", "ENV_PATH", "PUBLIC_URL",
+	"ADMIN_PASSWORD", "HOST", "PORT", "DATA_DIR", "ENV_CREDITAPI", "ENV_PATH", "PUBLIC_URL", "TRUSTED_PROXIES",
 	"CLAUDE_BIN", "DEFAULT_MODEL", "MODELS", "CURSOR_BIN", "CURSOR_MODELS", "CURSOR_DEFAULT_MODEL",
 	"MODEL_ALIASES", "STRICT_MODELS", "DEFAULT_EFFORT",
-	"DEFAULT_SYSTEM_PROMPT", "MAX_CONCURRENT", "QUEUE_TIMEOUT", "REQUEST_TIMEOUT",
-	"IMAGE_MAX_DIMENSION", "MAX_IMAGES", "ALLOW_IMAGE_URLS",
+	"DEFAULT_SYSTEM_PROMPT", "MAX_CONCURRENT", "MAX_PENDING", "QUEUE_TIMEOUT", "REQUEST_TIMEOUT",
+	"IMAGE_MAX_DIMENSION", "IMAGE_MAX_PIXELS", "MAX_IMAGES", "ALLOW_IMAGE_URLS",
 	"ALLOW_PRIVATE_IMAGE_URLS", "MAX_BODY_MB", "LOG_LEVEL",
 	"CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY", "ANTHROPIC_API_KEY",
 }
+
+// ExamplePassword is the placeholder ADMIN_PASSWORD in .env.example. It is
+// public, so the server refuses to start with it.
+const ExamplePassword = "change-me-to-something-long"
 
 // Load reads the configuration from the environment.
 func Load() (*Config, error) {
@@ -91,6 +105,11 @@ func Load() (*Config, error) {
 	if c.ImageMaxDimension, err = envInt("IMAGE_MAX_DIMENSION", 1568); err != nil {
 		return nil, err
 	}
+	maxPixels, err := envInt("IMAGE_MAX_PIXELS", 40_000_000)
+	if err != nil {
+		return nil, err
+	}
+	c.ImageMaxPixels = int64(maxPixels)
 	if c.MaxImages, err = envInt("MAX_IMAGES", 20); err != nil {
 		return nil, err
 	}
@@ -115,6 +134,9 @@ func Load() (*Config, error) {
 	if len(c.AdminPassword) < 8 {
 		return nil, errors.New("ADMIN_PASSWORD must be at least 8 characters")
 	}
+	if strings.EqualFold(strings.TrimSpace(c.AdminPassword), ExamplePassword) {
+		return nil, errors.New("ADMIN_PASSWORD is still the example value from .env.example; choose your own")
+	}
 	if p, perr := strconv.Atoi(c.Port); perr != nil || p < 1 || p > 65535 {
 		return nil, fmt.Errorf("PORT must be a number between 1 and 65535 (got %q)", c.Port)
 	}
@@ -125,6 +147,18 @@ func Load() (*Config, error) {
 	}
 	if c.MaxConcurrent < 1 {
 		return nil, errors.New("MAX_CONCURRENT must be at least 1")
+	}
+	if c.TrustedProxies, err = forwarded.Parse(os.Getenv("TRUSTED_PROXIES")); err != nil {
+		return nil, fmt.Errorf("TRUSTED_PROXIES: %w", err)
+	}
+	if c.MaxPending, err = envInt("MAX_PENDING", c.MaxConcurrent*4); err != nil {
+		return nil, err
+	}
+	if c.MaxPending < c.MaxConcurrent {
+		return nil, fmt.Errorf("MAX_PENDING must be at least MAX_CONCURRENT (%d)", c.MaxConcurrent)
+	}
+	if err := c.validateLimits(); err != nil {
+		return nil, err
 	}
 	if c.PublicURL != "" && !strings.HasPrefix(c.PublicURL, "http://") && !strings.HasPrefix(c.PublicURL, "https://") {
 		return nil, errors.New("PUBLIC_URL must start with http:// or https://")
@@ -149,6 +183,42 @@ func Load() (*Config, error) {
 	}
 	return c, nil
 }
+
+func (c *Config) validateLimits() error {
+	switch {
+	case c.QueueTimeout <= 0:
+		return errors.New("QUEUE_TIMEOUT must be positive")
+	case c.RequestTimeout <= 0:
+		return errors.New("REQUEST_TIMEOUT must be positive")
+	case c.MaxBodyBytes < 1<<20:
+		return errors.New("MAX_BODY_MB must be at least 1")
+	case c.ImageMaxDimension < 0:
+		return errors.New("IMAGE_MAX_DIMENSION must not be negative")
+	case c.ImageMaxPixels < 0:
+		return errors.New("IMAGE_MAX_PIXELS must not be negative")
+	case c.MaxImages < 0:
+		return errors.New("MAX_IMAGES must not be negative")
+	case len(c.Models) == 0:
+		return errors.New("MODELS must list at least one model")
+	case len(c.CursorModels) == 0:
+		return errors.New("CURSOR_MODELS must list at least one model")
+	}
+	names := append([]string{c.DefaultModel, c.CursorDefaultModel}, c.Models...)
+	names = append(names, c.CursorModels...)
+	for a, m := range c.ModelAliases {
+		names = append(names, a, m)
+	}
+	for _, n := range names {
+		if !modelNameRe.MatchString(n) {
+			return fmt.Errorf("invalid model name %q in the model settings: use letters, digits and . _ : / [ ] -", n)
+		}
+	}
+	return nil
+}
+
+// modelNameRe matches agent.ValidModelName (kept here so config has no
+// dependency on the agent package).
+var modelNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$`)
 
 // Addr is the listen address built from HOST and PORT.
 func (c *Config) Addr() string { return net.JoinHostPort(c.Host, c.Port) }

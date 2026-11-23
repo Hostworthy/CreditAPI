@@ -1,6 +1,6 @@
 module github.com/atb00ker/CreditAPI
 
-go 1.26.4
+go 1.26.11
 
 require (
 	github.com/creack/pty v1.1.24

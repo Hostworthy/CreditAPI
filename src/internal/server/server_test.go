@@ -85,7 +85,9 @@ func TestRunServesAndShutsDown(t *testing.T) {
 	url := "http://" + cfg.Addr() + "/healthz"
 	var resp *http.Response
 	for i := 0; i < 100; i++ {
-		if resp, err = http.Get(url); err == nil {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+cfg.AdminPassword)
+		if resp, err = http.DefaultClient.Do(req); err == nil {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -237,5 +239,18 @@ func TestResolveRequestID(t *testing.T) {
 		if id := resolveRequestID(bad); id == bad || len(id) != 24 {
 			t.Errorf("resolveRequestID(%q) = %q", bad, id)
 		}
+	}
+}
+
+func TestPanicIsRecovered(t *testing.T) {
+	logs := quietLogs(t)
+	h := withRequestLogging(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/x", nil))
+	if rec.Code != 500 || !strings.Contains(rec.Body.String(), "internal_error") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(logs.String(), "http.request.panicked") || !strings.Contains(logs.String(), "boom") {
+		t.Fatalf("panic not logged: %s", logs.String())
 	}
 }

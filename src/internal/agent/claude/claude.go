@@ -23,7 +23,7 @@ import (
 )
 
 // Provider is the identifier stored with Claude subscriptions.
-const Provider = "claude"
+const Provider = agent.ProviderClaude
 
 // TokenLifetime is how long `claude setup-token` tokens are valid.
 const TokenLifetime = 365 * 24 * time.Hour
@@ -117,6 +117,7 @@ func (b *Backend) Login(acc *agent.Account) agent.LoginSpec {
 		Token:     ExtractToken,
 		Redact:    func(s string) string { return tokenRe.ReplaceAllStringFunc(s, agent.Hint) },
 		Save:      acc.Tokens.Save,
+		URLHosts:  []string{"claude.ai", "claude.com", "anthropic.com"},
 	}
 }
 
@@ -177,7 +178,11 @@ type block struct {
 
 // Run implements agent.Backend.
 func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOptions, cb agent.Callbacks) (*agent.Result, error) {
-	tmp, err := os.MkdirTemp("", "creditapi-run-")
+	root, err := agent.RunRoot(Provider)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.MkdirTemp(root, "run-")
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +248,7 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	start := time.Now()
 	proc, err := agent.StartProc(ctx, b.Bin, args, env, b.WorkDir, bytes.NewReader(append(input, '\n')))
 	if err != nil {
-		return nil, &agent.Error{Kind: "upstream", Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
+		return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
 	}
 	res, perr := b.parse(proc.Stdout, acc, opts, cb, proc.Kill)
 	if perr != nil || (res != nil && res.FinishReason == "tool_calls") {
@@ -265,6 +270,15 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 		return nil, agent.Classify(b.Label(), 0, "claude exited without a result: "+msg)
 	}
 	if res.FinishReason == "" {
+		if waitErr != nil {
+			// The process died mid-answer: do not pass a cut-off reply off as
+			// complete.
+			msg := strings.TrimSpace(proc.Stderr.String())
+			if msg == "" {
+				msg = waitErr.Error()
+			}
+			return nil, agent.Classify(b.Label(), 0, "claude stopped before finishing: "+msg)
+		}
 		res.FinishReason = "stop"
 	}
 	slog.Debug(logging.Event("claude", "run", "finished"), slog.String("model", res.Model), slog.String("finish", res.FinishReason),
@@ -296,7 +310,7 @@ func (b *Backend) parse(stdout io.Reader, acc *agent.Account, opts agent.RunOpti
 
 	rd := bufio.NewReaderSize(stdout, 256<<10)
 	for {
-		line, err := rd.ReadBytes('\n')
+		line, err := agent.ReadLine(rd, agent.MaxLineBytes)
 		if len(bytes.TrimSpace(line)) > 0 {
 			var sl streamLine
 			if jerr := json.Unmarshal(line, &sl); jerr != nil {
@@ -464,7 +478,7 @@ func (b *Backend) parse(stdout io.Reader, acc *agent.Account, opts agent.RunOpti
 						} else if j := agent.ExtractJSON(res.Text); j != nil {
 							res.StructuredOutput = j
 						} else {
-							return nil, &agent.Error{Kind: "upstream", Status: 502, Message: "Claude did not return the requested structured JSON output"}
+							return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: "Claude did not return the requested structured JSON output"}
 						}
 					}
 					res.FinishReason = "stop"
@@ -482,11 +496,11 @@ func (b *Backend) parse(stdout io.Reader, acc *agent.Account, opts agent.RunOpti
 			return nil, err
 		}
 	}
-	// Stream ended without a result line.
+	// Stream ended without a result line. FinishReason stays empty so Run
+	// can tell a clean exit from a crash.
 	if text.Len() > 0 {
 		res.Text = text.String()
 		res.Usage = sumUsage
-		res.FinishReason = "stop"
 		return res, nil
 	}
 	return nil, nil

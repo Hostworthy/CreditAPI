@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"syscall"
@@ -30,11 +31,19 @@ const (
 	maxImageDownload = 20 << 20
 	// The Messages API rejects images over 5 MB once base64 encoded.
 	maxImageBytes = 3_700_000
+	// DefaultMaxPixels limits decoded images (width x height). A few KB of
+	// PNG can declare a huge canvas, and decoding allocates 4 bytes a pixel.
+	DefaultMaxPixels = 40_000_000
 )
+
+// decodeSlots limits how many images are decoded at once, so parallel
+// requests cannot multiply the memory a single decode needs.
+var decodeSlots = make(chan struct{}, 2)
 
 // ImageProcessor turns OpenAI image_url values into Claude image blocks.
 type ImageProcessor struct {
 	MaxDim       int
+	MaxPixels    int64
 	AllowURLs    bool
 	AllowPrivate bool
 	client       *http.Client
@@ -42,7 +51,7 @@ type ImageProcessor struct {
 
 // NewImageProcessor builds a processor with an SSRF-guarded HTTP client.
 func NewImageProcessor(maxDim int, allowURLs, allowPrivate bool) *ImageProcessor {
-	p := &ImageProcessor{MaxDim: maxDim, AllowURLs: allowURLs, AllowPrivate: allowPrivate}
+	p := &ImageProcessor{MaxDim: maxDim, MaxPixels: DefaultMaxPixels, AllowURLs: allowURLs, AllowPrivate: allowPrivate}
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	if !allowPrivate {
 		dialer.Control = func(network, address string, _ syscall.RawConn) error {
@@ -76,11 +85,35 @@ func NewImageProcessor(maxDim int, allowURLs, allowPrivate bool) *ImageProcessor
 	return p
 }
 
+// deniedRanges are the address ranges image downloads must never reach:
+// loopback, private, link-local, multicast, carrier-grade NAT,
+// documentation, benchmarking, reserved and translation ranges.
+var deniedRanges = func() []netip.Prefix {
+	var out []netip.Prefix
+	for _, s := range []string{
+		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+		"172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15",
+		"198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+		"::/128", "::1/128", "64:ff9b::/96", "100::/64", "2001::/32", "2001:db8::/32",
+		"2002::/16", "fc00::/7", "fe80::/10", "ff00::/8",
+	} {
+		out = append(out, netip.MustParsePrefix(s))
+	}
+	return out
+}()
+
 func isPublicIP(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() ||
-		// carrier-grade NAT 100.64.0.0/10
-		(ip.To4() != nil && ip.To4()[0] == 100 && ip.To4()[1]&0xc0 == 64))
+	a, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	a = a.Unmap()
+	for _, p := range deniedRanges {
+		if p.Contains(a) {
+			return false
+		}
+	}
+	return true
 }
 
 // Load converts one image reference into a Claude image block.
@@ -89,7 +122,13 @@ func (p *ImageProcessor) Load(ctx context.Context, ref string) (agent.ContentBlo
 	if err != nil {
 		return agent.ContentBlock{}, err
 	}
+	select {
+	case decodeSlots <- struct{}{}:
+	case <-ctx.Done():
+		return agent.ContentBlock{}, ctx.Err()
+	}
 	data, mediaType, err := p.normalize(data)
+	<-decodeSlots
 	if err != nil {
 		return agent.ContentBlock{}, err
 	}
@@ -190,6 +229,13 @@ func (p *ImageProcessor) normalize(data []byte) ([]byte, string, error) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, "", fmt.Errorf("cannot read image: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil, "", errors.New("image has no pixels")
+	}
+	if pixels := int64(cfg.Width) * int64(cfg.Height); p.MaxPixels > 0 && pixels > p.MaxPixels {
+		return nil, "", fmt.Errorf("image is %dx%d pixels, more than the limit of %d pixels (IMAGE_MAX_PIXELS); send a smaller image",
+			cfg.Width, cfg.Height, p.MaxPixels)
 	}
 	orientation := 1
 	if mediaType == "image/jpeg" {

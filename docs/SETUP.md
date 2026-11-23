@@ -8,7 +8,9 @@ from any OpenAI-compatible app. For a short overview, see
 
 - At least one subscription: Claude Pro or Max, and/or a Cursor plan
 - A server or home lab machine with Docker and Docker Compose
-- About 1 GB of free memory (each request in progress runs one CLI process of roughly 250-350 MB)
+- About 1 GB of free memory (each request in progress runs one CLI process; a
+  Claude process uses roughly 250-350 MB, a Cursor process has not been
+  measured)
 - Optional but recommended: a domain name and HTTPS through a reverse proxy
 
 ## Install
@@ -33,7 +35,9 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-The server listens on port 8080. All state (API keys, subscriptions, saved
+The server listens on port 8080. `docker-compose.yml` publishes it on
+`127.0.0.1` only; change the `ports` line to `"8080:8080"` to reach it from
+other devices on your network, such as your phone. All state (API keys, subscriptions, saved
 logins, CLI files) lives in the `creditapi-data` volume. Every setting is
 described in [ENVIRONMENT.md](ENVIRONMENT.md).
 
@@ -200,19 +204,22 @@ otherwise open `/login` yourself. A few details:
   needs a sign-in, and each subscription's `login` state, so an uptime monitor
   can alert you.
 
-## HTTPS and Reverse Proxy
+## Running Behind a Proxy (Optional)
 
-Put the server behind HTTPS before exposing it to the internet. With Caddy:
+CreditAPI is a plain HTTP server and works on its own, on a laptop or a home
+server. If you put it behind a reverse proxy for HTTPS, such as Nginx or
+Caddy, see [examples/nginx.conf](../examples/nginx.conf). Two Nginx defaults
+need changing: the 1 MB request body limit (photos are larger) and response
+buffering (it holds back streamed answers).
 
-```text
-ai.example.com {
-  reverse_proxy creditapi:8080
-}
-```
-
-The admin cookie is marked `Secure` when requests arrive over HTTPS
-(`X-Forwarded-Proto` is respected). If you can, keep `/admin` and `/login`
-reachable only from your home network or VPN; apps only need `/v1`.
+- Set `PUBLIC_URL` to the address you open in the browser. Login links use it,
+  and an `https://` address marks the admin cookie `Secure`.
+- Forwarding headers (`X-Forwarded-For`, `-Proto`, `-Host`) are ignored unless
+  the request comes from an address in `TRUSTED_PROXIES`, because any client
+  can send them. Set it so the admin sign-in lockout counts real client
+  addresses instead of the proxy's.
+- If you can, keep `/admin` and `/login` reachable only from your home network
+  or VPN; apps only need `/v1`.
 
 ## Updating
 
@@ -221,9 +228,11 @@ git pull
 docker compose up -d --build
 ```
 
-The image installs the latest `stable` Claude Code CLI and the latest Cursor
-CLI at build time. To pin versions, build with
-`docker compose build --build-arg CLAUDE_VERSION=2.1.323 --build-arg CURSOR_VERSION=2026.11.22-e9042b2`.
+The image installs pinned versions of the Claude Code CLI and the Cursor CLI
+(see the `ARG` lines in the `Dockerfile`; Dependabot proposes base image
+updates). To build other versions, pass `--build-arg CLAUDE_VERSION=...` and
+`--build-arg CURSOR_VERSION=...`; a Cursor version also needs its checksums in
+`scripts/cursor-checksums.txt`, or `--build-arg CURSOR_ALLOW_UNVERIFIED=1`.
 Your keys, subscriptions and logins survive updates in the data volume. An
 install from before subscriptions existed is moved over on the first start:
 its saved Claude login becomes the `Claude` subscription and every existing key
@@ -234,11 +243,12 @@ may use it.
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `MAX_CONCURRENT` | `2` | Requests answered at the same time, across all subscriptions; each uses roughly 250-350 MB |
+| `MAX_PENDING` | `8` | Requests running or waiting; more get `429 server_busy` at once |
 | `QUEUE_TIMEOUT` | `2m` | How long extra requests wait before `429 server_busy` |
 | `mem_limit` | `1536m` | Container memory limit in `docker-compose.yml` |
 
-The server itself uses about 6-15 MB. Each request adds 1-2 seconds of start-up
-time for the CLI process (a little more for Cursor).
+The server itself uses about 6-15 MB. Each Claude request adds 1-2 seconds of
+start-up time for the CLI process; Cursor has not been measured.
 
 ## Troubleshooting
 

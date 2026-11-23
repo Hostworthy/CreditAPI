@@ -165,7 +165,7 @@ func run(inv *invocation) int {
 		if desc := describeImages(inv); desc != "" {
 			reply = desc + " " + reply
 		}
-		if strings.Contains(inv.instructions, "single valid JSON object") {
+		if strings.Contains(inv.instructions, "single valid JSON object") && !d["not-json"] {
 			obj, _ := json.Marshal(map[string]any{"fake": true, "reply": fakecore.LastUserLine(inv.body)})
 			reply = "```json\n" + string(obj) + "\n```"
 		}

@@ -444,3 +444,49 @@ func TestConcurrencyLimit(t *testing.T) {
 		t.Fatalf("slow request: %d", code)
 	}
 }
+
+func TestStreamingTimeoutSendsError(t *testing.T) {
+	s, key := signedIn(t, support.Options{RequestTimeout: 300 * time.Millisecond})
+	_, events, done := s.Stream(key, map[string]any{"messages": user("[fake:slow]")})
+	if !done || len(events) == 0 {
+		t.Fatalf("stream should end with [DONE]: done=%v events=%d", done, len(events))
+	}
+	e, ok := events[len(events)-1]["error"].(map[string]any)
+	if !ok || e["code"] != "timeout" {
+		t.Fatalf("last event should be a timeout error: %v", events[len(events)-1])
+	}
+}
+
+func TestPendingLimit(t *testing.T) {
+	s, key := signedIn(t, support.Options{MaxConcurrent: 1, MaxPending: 1, QueueTimeout: 5 * time.Second})
+	done := make(chan int, 1)
+	go func() {
+		resp, _ := s.Chat(key, map[string]any{"messages": user("[fake:slow]")})
+		done <- resp.StatusCode
+	}()
+	time.Sleep(200 * time.Millisecond)
+	start := time.Now()
+	resp, out := s.Chat(key, hello)
+	if resp.StatusCode != 429 || errorOf(t, out)["code"] != "server_busy" || time.Since(start) > time.Second {
+		t.Fatalf("over MAX_PENDING should be refused at once: %d %v after %v", resp.StatusCode, out, time.Since(start))
+	}
+	if code := <-done; code != 200 {
+		t.Fatalf("running request: %d", code)
+	}
+}
+
+func TestInvalidModelName(t *testing.T) {
+	s, key := signedIn(t, support.Options{})
+	resp, out := s.Chat(key, map[string]any{"model": "--dangerous", "messages": user("hi")})
+	if resp.StatusCode != 400 || errorOf(t, out)["code"] != "invalid_model" {
+		t.Fatalf("%d %v", resp.StatusCode, out)
+	}
+}
+
+func TestJSONModeWithoutJSONReturnsText(t *testing.T) {
+	s, key := signedIn(t, support.Options{})
+	_, out := s.Chat(key, map[string]any{"messages": user("[fake:not-json] hi"), "response_format": map[string]any{"type": "json_object"}})
+	if got := support.Content(out); !strings.HasPrefix(got, "Fake reply to:") {
+		t.Fatalf("JSON mode without JSON should return the text, got %q", got)
+	}
+}
