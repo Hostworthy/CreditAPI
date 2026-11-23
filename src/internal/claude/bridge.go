@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 // BridgeServerName is the MCP server name under which client-supplied

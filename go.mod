@@ -1,4 +1,4 @@
-module github.com/atb00ker/claude-max-to-api
+module github.com/atb00ker/CreditAPI
 
 go 1.26.4
 

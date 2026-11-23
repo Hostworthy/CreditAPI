@@ -2,9 +2,9 @@
 
 <div align="center">
 
-# claude-max-to-api
+# CreditAPI
 
-<img src="docs/images/readme-hero.svg" alt="A phone app talks to your server through the OpenAI API, and your server answers with the Claude Code CLI" width="420" />
+<img src="docs/images/readme-hero.svg" alt="An app talks to your server through the OpenAI API, and your server answers with the Claude Code CLI" width="420" />
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![OpenAI API](https://img.shields.io/badge/API-OpenAI%20compatible-412991)](docs/API.md)
@@ -17,12 +17,11 @@
 
 <!-- markdownlint-enable MD033 MD041 -->
 
-claude-max-to-api turns your Claude Pro or Max subscription into a private,
+CreditAPI turns your Claude Pro or Max subscription into a private,
 OpenAI-compatible API for your own apps. Anything that can talk to an "OpenAI
-compatible" provider can use Claude through it: chat, tool calls, food photos
-and structured answers. It was built for the AI assistant in
-[SparkyFitness](https://github.com/CodeWithCJ/SparkyFitness), the self-hosted
-nutrition and fitness tracker.
+compatible" provider can use Claude through it: chat assistants, self-hosted
+tools, scripts and home lab services, with tool calls, photos and structured
+answers.
 
 It runs as one small Docker container next to your apps. Every request is
 answered by the official Claude Code CLI signed in with your account, so there
@@ -45,7 +44,7 @@ with the admin password you configured.
 ## Get Started
 
 See [SETUP.md](./docs/SETUP.md) to run it with Docker, connect your Claude
-subscription and point SparkyFitness (or any other app) at it.
+subscription and point your apps at it.
 
 ## For Developers
 

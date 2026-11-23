@@ -19,13 +19,17 @@ import (
 )
 
 // KeyPrefix is prepended to every generated key so they are easy to spot.
-const KeyPrefix = "sk-cmta-"
+const KeyPrefix = "sk-credit-"
+
+// LegacyKeyPrefix marks keys created before the project was renamed; they
+// keep working.
+const LegacyKeyPrefix = "sk-cmta-"
 
 // Key is a virtual API key record. The secret itself is never stored.
 type Key struct {
 	ID           string     `json:"id"`
 	Name         string     `json:"name"`
-	Hint         string     `json:"hint"` // e.g. "sk-cmta-Ab3d…x9Qz"
+	Hint         string     `json:"hint"` // e.g. "sk-credit-Ab3d…x9Qz"
 	Hash         string     `json:"hash"`
 	CreatedAt    time.Time  `json:"created_at"`
 	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
@@ -123,7 +127,7 @@ func (s *Store) Create(name string) (*Key, string, error) {
 
 // Authenticate returns a copy of the key record matching secret, or nil.
 func (s *Store) Authenticate(secret string) *Key {
-	if !strings.HasPrefix(secret, KeyPrefix) {
+	if !strings.HasPrefix(secret, KeyPrefix) && !strings.HasPrefix(secret, LegacyKeyPrefix) {
 		return nil
 	}
 	h := hashKey(secret)

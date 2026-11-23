@@ -7,7 +7,7 @@ For Docker, put them in `.env` (see [`.env.example`](../.env.example)), which
 `docker-compose.yml` passes in.
 
 When running the binary directly, `.env` in the working directory is loaded
-automatically. Set `ENV_CLAUDE_MAX_TO_API=/path/to/file.env` in the shell to load
+automatically. Set `ENV_CREDITAPI=/path/to/file.env` in the shell to load
 another file instead; inside an env file, `ENV_PATH=other.env` chains to another
 file (up to 10 hops, relative to the current file). Variables already set in the
 shell always win.
@@ -68,7 +68,7 @@ the CLI would bill that key instead of your subscription (a warning is logged).
 | Argument         | Default  | Description                                                    |
 | ---------------- | -------- | -------------------------------------------------------------- |
 | `CLAUDE_VERSION` | `stable` | `stable`, `latest` or an exact Claude Code version (`2.1.323`). |
-| `VERSION`        | `dev`    | Version reported by `claude-max-to-api version` and in logs.   |
+| `VERSION`        | `dev`    | Version reported by `creditapi version` and in logs.   |
 
 ```bash
 docker compose build --build-arg CLAUDE_VERSION=2.1.323

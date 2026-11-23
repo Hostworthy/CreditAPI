@@ -1,25 +1,26 @@
 services:
   claude-api:
-    image: ghcr.io/atb00ker/claude-max-to-api:latest
+    image: ghcr.io/atb00ker/creditapi:latest
     build: .
-    container_name: claude-max-to-api
+    container_name: creditapi
     restart: unless-stopped
     env_file: .env
     ports:
       - "8080:8080"
     volumes:
       # Keys, the saved Claude login and CLI state live here.
-      - claude-data:/data
+      - creditapi-data:/data
     # Each request runs one claude process (roughly 250-350 MB while active).
     mem_limit: 1536m
 
-    # To reach SparkyFitness by container name, join its network:
-    # networks: [sparkyfitness]
+    # To let apps in other compose projects reach this container by name,
+    # join their network:
+    # networks: [apps]
 
 volumes:
-  claude-data:
+  creditapi-data:
 
 # networks:
-#   sparkyfitness:
+#   apps:
 #     external: true
-#     name: sparkyfitness_default
+#     name: myapp_default

@@ -21,7 +21,7 @@ assert {
 tests {
   const mine = res.body.keys.filter((k) => k.name.startsWith("bruno-"));
   test("both keys are listed", function () {
-    expect(mine.map((k) => k.name)).to.include.members(["bruno-sparkyfitness", "bruno-spare"]);
+    expect(mine.map((k) => k.name)).to.include.members(["bruno-app", "bruno-spare"]);
   });
   test("hashes and secrets are never returned", function () {
     for (const k of res.body.keys) {

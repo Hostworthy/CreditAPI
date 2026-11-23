@@ -1,4 +1,4 @@
-// Command claude-max-to-api exposes an OpenAI-compatible API backed by the
+// Command creditapi exposes an OpenAI-compatible API backed by the
 // Claude Code CLI (`claude -p`) running on a Claude subscription.
 package main
 
@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/config"
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
-	"github.com/atb00ker/claude-max-to-api/src/internal/server"
+	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/server"
 )
 
 var version = "dev"

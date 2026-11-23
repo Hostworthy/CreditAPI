@@ -129,7 +129,7 @@ func TestDotEnvChain(t *testing.T) {
 	if err := os.WriteFile(secrets, []byte("CMTA_TEST_B=from-secrets\nCMTA_TEST_C=from-secrets\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ENV_CLAUDE_MAX_TO_API", entry)
+	t.Setenv("ENV_CREDITAPI", entry)
 	t.Setenv("CMTA_TEST_C", "from-shell")
 	for _, k := range []string{"CMTA_TEST_A", "CMTA_TEST_B"} {
 		t.Setenv(k, "")
@@ -148,11 +148,11 @@ func TestDotEnvChain(t *testing.T) {
 
 func TestDotEnvMissing(t *testing.T) {
 	t.Chdir(t.TempDir())
-	t.Setenv("ENV_CLAUDE_MAX_TO_API", "")
+	t.Setenv("ENV_CREDITAPI", "")
 	if err := LoadDotEnv(); err != nil {
 		t.Fatalf("missing default .env should be fine: %v", err)
 	}
-	t.Setenv("ENV_CLAUDE_MAX_TO_API", "does-not-exist.env")
+	t.Setenv("ENV_CREDITAPI", "does-not-exist.env")
 	if err := LoadDotEnv(); err == nil {
 		t.Fatal("explicit missing env file should fail")
 	}
@@ -164,7 +164,7 @@ func TestDotEnvLoop(t *testing.T) {
 	if err := os.WriteFile(loop, []byte("ENV_PATH=loop.env\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ENV_CLAUDE_MAX_TO_API", loop)
+	t.Setenv("ENV_CREDITAPI", loop)
 	if err := LoadDotEnv(); err == nil || !strings.Contains(err.Error(), "maximum depth") {
 		t.Fatalf("expected depth error, got %v", err)
 	}

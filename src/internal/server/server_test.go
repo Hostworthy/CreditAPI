@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/config"
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
-	"github.com/atb00ker/claude-max-to-api/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
 )
 
 func TestMain(m *testing.M) {

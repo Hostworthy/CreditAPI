@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="referrer" content="no-referrer">
-<title>Claude API Proxy · Admin</title>
+<title>CreditAPI · Admin</title>
 <link rel="stylesheet" href="/assets/app.css">
 <script src="/assets/app.js" defer></script>
 </head>
 <body data-page="admin">
 <header class="topbar">
-  <a class="brand" href="/admin">Claude API Proxy</a>
+  <a class="brand" href="/admin">CreditAPI</a>
   <nav class="nav" data-auth-only hidden>
     <a href="/admin" aria-current="page">Keys</a>
     <a href="/login">Claude login</a>
@@ -43,10 +43,10 @@
 
     <section class="card">
       <h2>Virtual API keys</h2>
-      <p class="muted">Give each app (for example SparkyFitness) its own key. The full key is shown only once.</p>
+      <p class="muted">Give each app its own key. The full key is shown only once.</p>
       <form id="create-key" class="row wrap-row">
         <label for="key-name" class="sr-only">Key name</label>
-        <input id="key-name" name="name" placeholder="Name, e.g. sparkyfitness" maxlength="100" required autocomplete="off">
+        <input id="key-name" name="name" placeholder="Name, e.g. my-app" maxlength="100" required autocomplete="off">
         <button type="submit" class="primary">Create key</button>
       </form>
       <p class="error" id="key-error" role="alert"></p>
@@ -71,14 +71,13 @@
         <dt>Models</dt><dd id="model-list"></dd>
       </dl>
       <details>
-        <summary>SparkyFitness setup</summary>
+        <summary>App setup</summary>
         <ol class="steps">
-          <li>In SparkyFitness open AI settings and add a service of type <em>OpenAI Compatible</em>.</li>
-          <li>Base URL: the value above (it must end in <code>/v1</code>).</li>
+          <li>In your app's AI settings, add a provider of type <em>OpenAI</em> or <em>OpenAI compatible</em>.</li>
+          <li>Base URL: the value above. Most apps want it to end in <code>/v1</code>.</li>
           <li>API key: a virtual key created here.</li>
-          <li>Turn on <em>Use custom model</em> and enter <code>sonnet</code> (or <code>opus</code> / <code>haiku</code>).</li>
-          <li>Pick the same service for Vision so food photos and nutrition labels work.</li>
-          <li>If SparkyFitness reaches this server on a private address, it may need <code>ALLOW_PRIVATE_NETWORK_AI=true</code>.</li>
+          <li>Model: one of the models listed above. Unknown model names use the default model.</li>
+          <li>If the app runs in Docker on the same host, use this container's name in the base URL. Some apps only allow private-network addresses after you enable that in their settings.</li>
         </ol>
       </details>
       <details>

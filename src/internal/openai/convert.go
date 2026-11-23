@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/claude"
 )
 
 // requestError is a client error (HTTP 400).

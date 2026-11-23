@@ -2,7 +2,7 @@
 // of secrets and user content.
 //
 // Messages are stable event IDs of the form
-// claude-max-to-api.<operation>.<action>.<status> (see docs/DEV.md).
+// creditapi.<operation>.<action>.<status> (see docs/DEV.md).
 //
 // Safe fields: request_id, method, path, status, duration_ms, key, key_id,
 // model, stream, images, tools, finish, tool_calls, prompt_tokens,
@@ -21,7 +21,7 @@ import (
 
 // Service is the value of the "service" field and the first part of every
 // event ID.
-const Service = "claude-max-to-api"
+const Service = "creditapi"
 
 // New builds a JSON logger writing to os.Stdout with redaction.
 func New(level string) (*slog.Logger, error) {
@@ -71,7 +71,7 @@ func ParseLevel(raw string) (slog.Level, error) {
 }
 
 // Event builds an event ID: Event("chat", "completion", "succeeded") returns
-// "claude-max-to-api.chat.completion.succeeded".
+// "creditapi.chat.completion.succeeded".
 func Event(parts ...string) string {
 	return Service + "." + strings.Join(parts, ".")
 }

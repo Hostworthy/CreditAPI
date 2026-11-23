@@ -16,7 +16,7 @@ auth:bearer {
 
 body:json {
   {
-    "name": "bruno-sparkyfitness"
+    "name": "bruno-app"
   }
 }
 
@@ -31,8 +31,8 @@ script:post-response {
 
 tests {
   test("returns the secret once", function () {
-    expect(res.body.secret).to.match(/^sk-cmta-[A-Za-z0-9_-]{40,}$/);
-    expect(res.body.key.name).to.equal("bruno-sparkyfitness");
-    expect(res.body.key.hint).to.match(/^sk-cmta-.{4}….{4}$/);
+    expect(res.body.secret).to.match(/^sk-credit-[A-Za-z0-9_-]{40,}$/);
+    expect(res.body.key.name).to.equal("bruno-app");
+    expect(res.body.key.hint).to.match(/^sk-credit-.{4}….{4}$/);
   });
 }

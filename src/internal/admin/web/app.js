@@ -238,7 +238,7 @@ function setupAdmin() {
   $("#base-url").textContent = base;
   $("#curl-example").textContent =
 `curl ${base}/chat/completions \\
-  -H "Authorization: Bearer sk-cmta-..." \\
+  -H "Authorization: Bearer sk-credit-..." \\
   -H "Content-Type: application/json" \\
   -d '{"model":"sonnet","messages":[{"role":"user","content":"Hello!"}]}'`;
 

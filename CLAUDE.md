@@ -8,7 +8,7 @@ Guidance for AI assistants working on this repository. Human-facing docs:
 A Go server that exposes an OpenAI-compatible API (`/v1/chat/completions`,
 `/v1/models`) backed by the Claude Code CLI (`claude -p`, stream-json) on a
 Claude subscription, plus `/admin` (virtual API keys) and `/login` (phone-friendly
-`claude setup-token` sign-in). The main client is SparkyFitness.
+`claude setup-token` sign-in). Any OpenAI-compatible app can be a client.
 
 ## Commands
 
@@ -21,7 +21,7 @@ make e2e        # server on the fake CLI for manual testing (.env.bruno)
 
 ## Layout
 
-- `src/cmd/claude-max-to-api`: entrypoint. `src/cmd/fakeclaude`: fake CLI binary.
+- `src/cmd/creditapi`: entrypoint. `src/cmd/fakeclaude`: fake CLI binary.
 - `src/internal/{admin,claude,config,keys,logging,openai,server}`: application code.
 - `src/tests`: integration tests on the full server; `src/tests/support`: helpers and the fake CLI.
 - `bruno/`: Bruno collection (`.bru`), ordered folders, `environments/local.bru`.
@@ -30,7 +30,7 @@ make e2e        # server on the fake CLI for manual testing (.env.bruno)
 ## Conventions
 
 - Logging: `slog` with event-ID messages built by `logging.Event(op, action, status)`,
-  e.g. `claude-max-to-api.chat.completion.succeeded`; details in attributes; use
+  e.g. `creditapi.chat.completion.succeeded`; details in attributes; use
   `logging.From(ctx)` inside handlers for the request ID. Never log tokens,
   keys, passwords, sign-in codes, prompts or responses.
 - Errors to API clients use the OpenAI envelope (`type`, `code`, `message`);

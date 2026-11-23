@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
