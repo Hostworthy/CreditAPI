@@ -85,7 +85,8 @@ Every request is answered by one of the subscriptions its key may use (see
   the key accepts returns `404 model_not_found` instead.
 - `<slug>/<model>` (for example `claude-work/sonnet` or `cursor-personal/auto`)
   pins one subscription by its short name. An empty model after the slash uses
-  that subscription's default. A pinned request never falls back; pinning a
+  that subscription's default; a model that subscription does not offer
+  returns `404 model_not_found`. A pinned request never falls back; pinning a
   subscription the key may not use, or a disabled one, returns `403`.
 - When a subscription is signed out, at its usage limit, overloaded or fails
   before anything was streamed, the next candidate answers.
@@ -136,13 +137,14 @@ Errors use the OpenAI envelope:
 | Status | `type`                  | `code`                    | When                                                         |
 | ------ | ----------------------- | ------------------------- | ------------------------------------------------------------ |
 | 400    | `invalid_request_error` | `invalid_json`, `invalid_messages`, `invalid_tools`, `invalid_response_format`, `unsupported_n`, `invalid_request` | Bad request or rejected by the model |
+| 400    | `invalid_request_error` | `invalid_model`           | Model name with characters other than letters, digits and `. _ : / [ ] -`, or longer than 128 |
 | 401    | `invalid_request_error` | `invalid_api_key`         | Missing, unknown or disabled virtual key                     |
 | 401    | `authentication_error`  | `subscription_login_required` | No subscription could answer because they are signed out; the message names them and links to `/login?subscription=<id>` |
 | 403    | `permission_error`      | `no_subscription`         | The key may not use any enabled subscription, or not the pinned one |
 | 404    | `invalid_request_error` | `model_not_found`         | No subscription of the key accepts the model and `STRICT_MODELS=true` |
 | 413    | `invalid_request_error` | `request_too_large`       | Body over `MAX_BODY_MB`                                      |
 | 429    | `rate_limit_error`      | `rate_limit_exceeded`     | Usage limit reached on every subscription tried              |
-| 429    | `rate_limit_error`      | `server_busy`             | All `MAX_CONCURRENT` slots busy for `QUEUE_TIMEOUT`          |
+| 429    | `rate_limit_error`      | `server_busy`             | All `MAX_CONCURRENT` slots busy for `QUEUE_TIMEOUT`, or `MAX_PENDING` requests already admitted |
 | 502    | `api_error`             | `upstream_error`          | The CLI failed                                               |
 | 503    | `service_unavailable`   | `overloaded`              | The model is overloaded                                      |
 | 504    | `api_error`             | `timeout`                 | Over `REQUEST_TIMEOUT`                                       |

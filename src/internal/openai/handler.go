@@ -23,11 +23,12 @@ import (
 
 // Handler serves the OpenAI-compatible endpoints.
 type Handler struct {
-	cfg    *config.Config
-	keys   *keys.Store
-	subs   *subscriptions.Manager
-	slots  *agent.Slots
-	images *ImageProcessor
+	pending chan struct{} // MAX_PENDING admission
+	cfg     *config.Config
+	keys    *keys.Store
+	subs    *subscriptions.Manager
+	slots   *agent.Slots
+	images  *ImageProcessor
 }
 
 // NewHandler wires the handler.
@@ -36,12 +37,17 @@ func NewHandler(cfg *config.Config, ks *keys.Store, subs *subscriptions.Manager,
 	if cfg.ImageMaxPixels > 0 {
 		images.MaxPixels = cfg.ImageMaxPixels
 	}
+	pending := cfg.MaxPending
+	if pending < 1 {
+		pending = max(cfg.MaxConcurrent, 1) * 4
+	}
 	return &Handler{
-		cfg:    cfg,
-		keys:   ks,
-		subs:   subs,
-		slots:  slots,
-		images: images,
+		pending: make(chan struct{}, pending),
+		cfg:     cfg,
+		keys:    ks,
+		subs:    subs,
+		slots:   slots,
+		images:  images,
 	}
 }
 
@@ -120,6 +126,14 @@ func newID() string {
 func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	key := keyFrom(r.Context())
+	select {
+	case h.pending <- struct{}{}:
+		defer func() { <-h.pending }()
+	default:
+		writeError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy",
+			"server is busy: too many requests are waiting, try again shortly (MAX_PENDING)")
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.cfg.MaxBodyBytes))
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request_too_large", "request body is too large (MAX_BODY_MB)")
@@ -597,6 +611,8 @@ func describeError(err error, loginURL string) (status int, typ, code, msg strin
 			return ce.Status, "service_unavailable", "overloaded", ce.Message
 		case "invalid_request":
 			return ce.Status, "invalid_request_error", "invalid_request", ce.Message
+		case "invalid_model":
+			return http.StatusBadRequest, "invalid_request_error", "invalid_model", ce.Message
 		}
 		return ce.Status, "api_error", "upstream_error", ce.Message
 	}

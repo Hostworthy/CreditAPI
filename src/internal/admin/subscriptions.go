@@ -105,8 +105,7 @@ func (a *Admin) createSubscription(w http.ResponseWriter, r *http.Request) {
 		Provider string   `json:"provider"`
 		Keys     []string `json:"keys"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	if err := a.checkKeyIDs(body.Keys); err != nil {
@@ -135,8 +134,7 @@ func (a *Admin) updateSubscription(w http.ResponseWriter, r *http.Request) {
 		Disabled *bool     `json:"disabled"`
 		Keys     *[]string `json:"keys"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	if body.Keys != nil {
@@ -174,8 +172,7 @@ func (a *Admin) moveSubscription(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Direction string `json:"direction"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	delta := 0
@@ -188,8 +185,11 @@ func (a *Admin) moveSubscription(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, `direction must be "up" or "down"`)
 		return
 	}
-	if err := a.subs.Store.Move(r.PathValue("id"), delta); err != nil {
+	if err := a.subs.Store.Move(r.PathValue("id"), delta); errors.Is(err, subscriptions.ErrNotFound) {
 		jsonError(w, http.StatusNotFound, "subscription not found")
+		return
+	} else if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	a.listSubscriptions(w, r)
@@ -202,7 +202,9 @@ func (a *Admin) checkSubscription(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Force bool `json:"force"`
 	}
-	_ = readJSON(r, &body)
+	if !readJSON(w, r, &body) {
+		return
+	}
 	sub, acc, b, ok := a.lookup(w, r)
 	if !ok {
 		return
@@ -267,8 +269,7 @@ func (a *Admin) submitCode(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code string `json:"code"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	id := r.PathValue("id")
@@ -290,8 +291,7 @@ func (a *Admin) setCredential(w http.ResponseWriter, r *http.Request) {
 		Credential string `json:"credential"`
 		Token      string `json:"token"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	sub, acc, _, ok := a.lookup(w, r)

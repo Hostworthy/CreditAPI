@@ -730,3 +730,15 @@ func TestImageDecodeRespectsContext(t *testing.T) {
 		t.Fatalf("expected the context error while all decode slots are busy, got %v", err)
 	}
 }
+
+func TestSchemaSizeLimit(t *testing.T) {
+	big := `{"type":"object","description":"` + strings.Repeat("x", 70<<10) + `"}`
+	var rf ResponseFormat
+	if err := json.Unmarshal([]byte(`{"type":"json_schema","json_schema":{"name":"x","schema":`+big+`}}`), &rf); err != nil {
+		t.Fatal(err)
+	}
+	_, err := jsonSchemaFor(&rf)
+	if err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("got %v", err)
+	}
+}

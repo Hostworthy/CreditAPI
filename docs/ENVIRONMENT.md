@@ -59,6 +59,7 @@ with its own `HOME` under `$DATA_DIR/subscriptions/<id>/home`.
 | Variable          | Default | Description                                                        |
 | ----------------- | ------- | ------------------------------------------------------------------ |
 | `MAX_CONCURRENT`  | `2`     | CLI processes allowed at once, across all subscriptions (each uses roughly 250-350 MB). |
+| `MAX_PENDING`     | `4 x MAX_CONCURRENT` | Chat requests admitted at once, running plus waiting. More are refused at once with `429 server_busy`; this bounds the memory queued requests hold. |
 | `QUEUE_TIMEOUT`   | `2m`    | How long a request waits for a free slot before `429 server_busy`. Seconds or a Go duration. |
 | `REQUEST_TIMEOUT` | `10m`   | Maximum time for one request.                                      |
 | `MAX_BODY_MB`     | `50`    | Maximum request body size.                                         |

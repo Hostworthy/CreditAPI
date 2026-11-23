@@ -84,7 +84,6 @@ func (m *Manager) Account(sub Subscription) (*agent.Account, agent.Backend, erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if acc, ok := m.accounts[sub.ID]; ok {
-		acc.Name = sub.Name
 		return acc, b, nil
 	}
 	home := filepath.Join(m.dir(sub.ID), "home")
@@ -264,6 +263,10 @@ type Candidate struct {
 //     routing is on), each group in priority order.
 func (m *Manager) Candidates(keyID, requested string) ([]Candidate, error) {
 	requested = strings.TrimSpace(requested)
+	if requested != "" && !agent.ValidModelName(requested) {
+		return nil, &agent.Error{Kind: "invalid_model", Status: 400,
+			Message: "invalid model name: use letters, digits and . _ : / [ ] - (at most 128 characters)"}
+	}
 	subs := m.Store.ForKey(keyID)
 
 	if slug, rest, ok := strings.Cut(requested, "/"); ok {
@@ -282,6 +285,9 @@ func (m *Manager) Candidates(keyID, requested string) ([]Candidate, error) {
 			model := m.alias(rest)
 			if model == "" {
 				model = b.DefaultModel()
+			} else if !b.Accepts(model) {
+				return nil, &agent.Error{Kind: "not_found", Status: 404,
+					Message: fmt.Sprintf("model %s is not available on %q; see /v1/models", rest, s.Name)}
 			}
 			return []Candidate{{Sub: s, Account: acc, Backend: b, Model: model}}, nil
 		}

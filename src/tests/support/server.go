@@ -38,6 +38,7 @@ type Options struct {
 	EnvToken          string
 	CursorKey         string
 	MaxConcurrent     int
+	MaxPending        int
 	QueueTimeout      time.Duration
 	StrictModels      bool
 	PublicURL         string
@@ -74,7 +75,7 @@ func NewServer(t *testing.T, opts Options) *TestServer {
 		DefaultModel: "sonnet", Models: []string{"opus", "sonnet", "haiku"},
 		CursorDefaultModel: "auto", CursorModels: []string{"auto", "gpt-5", "sonnet-4"},
 		ModelAliases: map[string]string{"gpt-4o": "opus"}, StrictModels: opts.StrictModels,
-		DefaultSystemPrompt: "You are a helpful assistant.", MaxConcurrent: or(opts.MaxConcurrent, 2),
+		DefaultSystemPrompt: "You are a helpful assistant.", MaxConcurrent: or(opts.MaxConcurrent, 2), MaxPending: or(opts.MaxPending, 8),
 		QueueTimeout: orDur(opts.QueueTimeout, 5*time.Second), RequestTimeout: orDur(opts.RequestTimeout, 30*time.Second),
 		ImageMaxDimension: or(opts.ImageMaxDimension, 1568), MaxImages: or(opts.MaxImages, 20),
 		AllowImageURLs: true, MaxBodyBytes: orInt64(opts.MaxBodyBytes, 10<<20), LogLevel: "error",

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -551,4 +552,17 @@ func TestLoginCancelAndSwitch(t *testing.T) {
 		t.Fatalf("b state %q", st.State)
 	}
 	m.CancelAll()
+}
+
+func TestReadLineLimit(t *testing.T) {
+	rd := bufio.NewReaderSize(strings.NewReader("short\n"+strings.Repeat("x", 100)+"\nend"), 16)
+	if l, err := ReadLine(rd, 50); err != nil || string(l) != "short\n" {
+		t.Fatalf("%q %v", l, err)
+	}
+	if _, err := ReadLine(rd, 50); err == nil {
+		t.Fatal("a line over the limit must fail")
+	}
+	if !ValidModelName("claude-sonnet-4-5[1m]") || !ValidModelName("vendor/model:tag") || ValidModelName("-x") || ValidModelName("") {
+		t.Fatal("model name rules")
+	}
 }

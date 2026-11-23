@@ -296,7 +296,7 @@ func (b *Backend) parse(stdout io.Reader, acc *agent.Account, opts agent.RunOpti
 
 	rd := bufio.NewReaderSize(stdout, 256<<10)
 	for {
-		line, err := rd.ReadBytes('\n')
+		line, err := agent.ReadLine(rd, agent.MaxLineBytes)
 		if len(bytes.TrimSpace(line)) > 0 {
 			var sl streamLine
 			if jerr := json.Unmarshal(line, &sl); jerr != nil {

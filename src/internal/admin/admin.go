@@ -219,8 +219,7 @@ func (a *Admin) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Password string `json:"password"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	if !a.passwordOK(body.Password) {
@@ -303,8 +302,7 @@ func (a *Admin) createKey(w http.ResponseWriter, r *http.Request) {
 		Name          string    `json:"name"`
 		Subscriptions *[]string `json:"subscriptions"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	var grants []string
@@ -338,8 +336,7 @@ func (a *Admin) updateKey(w http.ResponseWriter, r *http.Request) {
 		Disabled      *bool     `json:"disabled"`
 		Subscriptions *[]string `json:"subscriptions"`
 	}
-	if err := readJSON(r, &body); err != nil {
-		jsonError(w, http.StatusBadRequest, err.Error())
+	if !readJSON(w, r, &body) {
 		return
 	}
 	id := r.PathValue("id")
@@ -388,18 +385,28 @@ func (a *Admin) deleteKey(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers -----------------------------------------------------------------
 
-func readJSON(r *http.Request, v any) error {
-	b, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+// readJSON decodes a small JSON body (at most 64 KiB, read within 15
+// seconds). On failure it writes the error response and returns false.
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(15 * time.Second))
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 	if err != nil {
-		return err
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			jsonError(w, http.StatusRequestEntityTooLarge, "request body is too large (max 64 KB)")
+		} else {
+			jsonError(w, http.StatusBadRequest, "could not read the request body")
+		}
+		return false
 	}
 	if len(strings.TrimSpace(string(b))) == 0 {
-		return nil
+		return true
 	}
 	if err := json.Unmarshal(b, v); err != nil {
-		return errors.New("invalid JSON body")
+		jsonError(w, http.StatusBadRequest, "invalid JSON body")
+		return false
 	}
-	return nil
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -234,6 +234,7 @@ may use it.
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `MAX_CONCURRENT` | `2` | Requests answered at the same time, across all subscriptions; each uses roughly 250-350 MB |
+| `MAX_PENDING` | `8` | Requests running or waiting; more get `429 server_busy` at once |
 | `QUEUE_TIMEOUT` | `2m` | How long extra requests wait before `429 server_busy` |
 | `mem_limit` | `1536m` | Container memory limit in `docker-compose.yml` |
 

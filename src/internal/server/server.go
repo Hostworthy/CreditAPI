@@ -186,7 +186,10 @@ func (s *Server) Run(ctx context.Context) error {
 		Addr:              cfg.Addr(),
 		Handler:           s.handler,
 		ReadHeaderTimeout: 15 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// Bounds slow request bodies. No WriteTimeout: it would cut streams.
+		ReadTimeout:    5 * time.Minute,
+		MaxHeaderBytes: 64 << 10,
+		IdleTimeout:    120 * time.Second,
 	}
 	s.Start(ctx)
 	errc := make(chan error, 1)

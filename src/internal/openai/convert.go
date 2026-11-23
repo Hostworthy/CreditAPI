@@ -408,6 +408,10 @@ func effortFor(requested, def string) string {
 }
 
 // jsonSchemaFor returns the --json-schema argument for a response_format.
+// maxSchemaBytes keeps a schema well under the operating system's limit for
+// one command-line argument (it is passed to claude as --json-schema).
+const maxSchemaBytes = 64 << 10
+
 func jsonSchemaFor(rf *ResponseFormat) (json.RawMessage, error) {
 	if rf == nil {
 		return nil, nil
@@ -428,6 +432,9 @@ func jsonSchemaFor(rf *ResponseFormat) (json.RawMessage, error) {
 			return nil, badRequest("response_format.json_schema.schema is not valid JSON: %v", err)
 		}
 		b, _ := json.Marshal(v) // compact
+		if len(b) > maxSchemaBytes {
+			return nil, badRequest("response_format.json_schema.schema is larger than %d KB", maxSchemaBytes>>10)
+		}
 		return b, nil
 	}
 	return nil, badRequest("unsupported response_format type %q", rf.Type)

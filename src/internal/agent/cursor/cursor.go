@@ -432,7 +432,7 @@ func (b *Backend) parse(stdout io.Reader, emit func(string)) (*agent.Result, err
 	sawDelta := false
 	rd := bufio.NewReaderSize(stdout, 256<<10)
 	for {
-		line, err := rd.ReadBytes('\n')
+		line, err := agent.ReadLine(rd, agent.MaxLineBytes)
 		if len(bytes.TrimSpace(line)) > 0 {
 			var ev event
 			if jerr := json.Unmarshal(line, &ev); jerr != nil {

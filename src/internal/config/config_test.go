@@ -93,6 +93,13 @@ func TestLoadValidation(t *testing.T) {
 		"QUEUE_TIMEOUT must be a duration":  {"ADMIN_PASSWORD": "long-enough", "QUEUE_TIMEOUT": "soon"},
 		"MODEL_ALIASES entry":               {"ADMIN_PASSWORD": "long-enough", "MODEL_ALIASES": "gpt-4o"},
 		"LOG_LEVEL must be debug":           {"ADMIN_PASSWORD": "long-enough", "LOG_LEVEL": "loud"},
+		"MAX_PENDING must be at least":      {"ADMIN_PASSWORD": "long-enough", "MAX_CONCURRENT": "3", "MAX_PENDING": "2"},
+		"REQUEST_TIMEOUT must be positive":  {"ADMIN_PASSWORD": "long-enough", "REQUEST_TIMEOUT": "0"},
+		"QUEUE_TIMEOUT must be positive":    {"ADMIN_PASSWORD": "long-enough", "QUEUE_TIMEOUT": "-5s"},
+		"MAX_BODY_MB must be at least 1":    {"ADMIN_PASSWORD": "long-enough", "MAX_BODY_MB": "0"},
+		"MAX_IMAGES must not be negative":   {"ADMIN_PASSWORD": "long-enough", "MAX_IMAGES": "-1"},
+		"MODELS must list":                  {"ADMIN_PASSWORD": "long-enough", "MODELS": " , "},
+		"invalid model name":                {"ADMIN_PASSWORD": "long-enough", "MODEL_ALIASES": "gpt 4o=sonnet"},
 	}
 	for want, vars := range cases {
 		t.Run(want, func(t *testing.T) {

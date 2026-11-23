@@ -261,6 +261,14 @@ func TestCandidates(t *testing.T) {
 	}
 
 	var ce *agent.Error
+	for _, bad := range []string{"-x", "a b", "--model=opus", strings.Repeat("m", 200)} {
+		if _, err := m.Candidates("k1", bad); !errors.As(err, &ce) || ce.Kind != "invalid_model" || ce.Status != 400 {
+			t.Errorf("model %q: %v", bad, err)
+		}
+	}
+	if _, err := m.Candidates("k1", "cursor-personal/nope"); !errors.As(err, &ce) || ce.Status != 404 {
+		t.Fatalf("pinned unknown model: %v", err)
+	}
 	if _, err := m.Candidates("k1", "claude-company/opus"); !errors.As(err, &ce) || ce.Status != 403 {
 		t.Fatalf("pin to a subscription the key may not use: %v", err)
 	}

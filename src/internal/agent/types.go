@@ -5,7 +5,10 @@
 package agent
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -172,6 +175,34 @@ func ExtractJSON(s string) json.RawMessage {
 		}
 	}
 	return nil
+}
+
+var modelNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$`)
+
+// ValidModelName reports whether s is a plausible model name: letters,
+// digits and . _ : / [ ] -, starting with a letter or digit, at most 128
+// characters. Names reach the CLIs as one argument after --model.
+func ValidModelName(s string) bool { return modelNameRe.MatchString(s) }
+
+// MaxLineBytes caps one line of CLI output.
+const MaxLineBytes = 32 << 20
+
+// ReadLine reads one newline-terminated line of at most max bytes. A longer
+// line is an error, so a misbehaving CLI cannot make the server buffer
+// without limit.
+func ReadLine(rd *bufio.Reader, max int) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := rd.ReadSlice('\n')
+		if len(line)+len(chunk) > max {
+			return nil, fmt.Errorf("CLI output line longer than %d bytes", max)
+		}
+		line = append(line, chunk...)
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return line, err
+	}
 }
 
 // Truncate shortens s to n bytes, adding an ellipsis when cut.

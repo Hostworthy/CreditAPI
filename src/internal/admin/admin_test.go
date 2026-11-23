@@ -308,3 +308,11 @@ func TestSubscriptionsAPI(t *testing.T) {
 		t.Fatalf("delete twice: %d", code)
 	}
 }
+
+func TestAdminBodyLimit(t *testing.T) {
+	srv := newServer(t)
+	big := map[string]string{"name": strings.Repeat("x", 70<<10)}
+	if code, _ := call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/keys", big, map[string]string{"Authorization": "Bearer " + pw}); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized body: %d", code)
+	}
+}
