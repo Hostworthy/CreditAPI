@@ -57,7 +57,7 @@ curl https://your-server/v1/chat/completions \
 | `tools`, `tool_choice` (auto, none, required, named)      | Yes, plus `parallel_tool_calls` and legacy `functions`               |
 | `image_url` content parts                                 | Data URL, bare base64 or http(s) link; JPEG, PNG, GIF, WebP          |
 | `response_format` `json_schema`                           | Schema-validated structured output                                   |
-| `response_format` `json_object`                           | JSON only, code fences stripped                                      |
+| `response_format` `json_object`                           | JSON only, code fences stripped; the plain reply if it has no JSON |
 | `max_tokens` / `max_completion_tokens`                    | Yes, minimum 256 so tool calls are not cut off                       |
 | `stop`                                                    | Yes (string or list)                                                 |
 | `reasoning_effort`                                        | Claude: mapped to `--effort` (`minimal` becomes `low`). Cursor: ignored |

@@ -137,7 +137,7 @@ func (m *LoginManager) Start(subscription string, spec LoginSpec) (LoginStatus, 
 		case <-readDone:
 		case <-time.After(3 * time.Second):
 		}
-		ptmx.Close()
+		_ = ptmx.Close()
 		ctxErr := ctx.Err() // before cancel, which would always set it
 		cancel()
 		m.finish(gen, err, ctxErr)

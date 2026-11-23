@@ -85,7 +85,7 @@ func New(cfg *config.Config, version string) (*Server, error) {
 			LegacyHome:  filepath.Join(cfg.DataDir, "claude-home"),
 			CursorEnv:   os.Getenv("CURSOR_API_KEY") != "",
 		}); err != nil {
-			bridge.Close()
+			_ = bridge.Close()
 			return nil, fmt.Errorf("create first subscriptions: %w", err)
 		}
 	}
@@ -95,7 +95,7 @@ func New(cfg *config.Config, version string) (*Server, error) {
 		known[k.ID] = true
 	}
 	if n, err := store.PruneKeys(known); err != nil {
-		bridge.Close()
+		_ = bridge.Close()
 		return nil, fmt.Errorf("clean up subscription grants: %w", err)
 	} else if n > 0 {
 		slog.Warn(logging.Event("subscription", "grants", "pruned"), slog.Int("removed", n))
@@ -106,7 +106,7 @@ func New(cfg *config.Config, version string) (*Server, error) {
 	openai.NewHandler(cfg, ks, subs, s.Slots).Register(mux)
 	adm, err := admin.New(cfg, ks, subs, s.Slots)
 	if err != nil {
-		bridge.Close()
+		_ = bridge.Close()
 		return nil, err
 	}
 	adm.Register(mux)

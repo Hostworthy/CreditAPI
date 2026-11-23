@@ -31,7 +31,7 @@ func TestLoginJourney(t *testing.T) {
 	api := "/admin/api/subscriptions/" + sub
 
 	resp, out := s.Do("GET", "/healthz", nil, nil)
-	if _, listed := out["subscriptions"]; listed || out["subscription_count"] != float64(1) {
+	if _, listed := out["subscriptions"]; resp.StatusCode != 200 || listed || out["subscription_count"] != float64(1) {
 		t.Fatalf("anonymous healthz must not list subscriptions: %v", out)
 	}
 	resp, out = s.Do("GET", "/healthz", nil, map[string]string{"Authorization": "Bearer " + support.AdminPassword})
