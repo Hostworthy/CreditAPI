@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -95,10 +94,6 @@ func run() error {
 	envb := &claude.EnvBuilder{Home: cfg.ClaudeHome, Tokens: tokens, Drop: config.OwnEnvVars}
 	status := &claude.Status{}
 
-	mcpServers, err := claude.LoadMCPConfig(cfg.MCPConfigFile)
-	if err != nil {
-		return fmt.Errorf("MCP_CONFIG: %w", err)
-	}
 	bridge, err := claude.NewBridge()
 	if err != nil {
 		return fmt.Errorf("start MCP bridge: %w", err)
@@ -107,9 +102,8 @@ func run() error {
 	runner := claude.NewRunner(cfg.MaxConcurrent)
 	runner.Bin = cfg.ClaudeBin
 	runner.WorkDir = workDir
-	runner.MaxTurns = cfg.MaxTurns
-	runner.ServerMCP = mcpServers
 	runner.Bridge = bridge
+	runner.Tokens = tokens
 	runner.Env = envb.ForRun
 	runner.Status = status
 
@@ -125,7 +119,8 @@ func run() error {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		_, source := tokens.Token()
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"ok":true,"claude_token":%t}`+"\n", source != "")
+		fmt.Fprintf(w, `{"ok":true,"claude_token":%t,"claude_login":%q}`+"\n",
+			source != "", status.Auth(tokens.Version()).State)
 	})
 
 	srv := &http.Server{
@@ -147,13 +142,12 @@ func run() error {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		slog.Warn("ANTHROPIC_API_KEY is set; the claude CLI will bill that API key instead of your subscription")
 	}
-	var mcpNames []string
-	for n := range mcpServers {
-		mcpNames = append(mcpNames, n)
-	}
 	slog.Info("starting claude-max-to-api", "version", version, "listen", cfg.ListenAddr, "data_dir", cfg.DataDir,
 		"default_model", cfg.DefaultModel, "max_concurrent", cfg.MaxConcurrent, "token_source", source,
-		"mcp_servers", strings.Join(mcpNames, ","))
+		"public_url", cfg.PublicURL)
+	if cfg.PublicURL == "" {
+		slog.Info("PUBLIC_URL is not set: login links in error messages will use the address the client called")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

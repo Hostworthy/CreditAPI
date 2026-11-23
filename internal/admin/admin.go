@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,7 +48,11 @@ type Admin struct {
 	status  *claude.Status
 	hmacKey []byte
 	limiter *limiter
+	checkMu sync.Mutex // one login check at a time
 }
+
+// checkReuse is how long a verified login is trusted without a new check.
+const checkReuse = 10 * time.Minute
 
 // New creates the admin handlers. The session signing key is derived from a
 // random per-installation secret plus ADMIN_PASSWORD, so changing the
@@ -109,7 +112,7 @@ func (a *Admin) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /admin/api/claude/login", a.require(a.cancelLogin))
 	mux.HandleFunc("PUT /admin/api/claude/token", a.require(a.setToken))
 	mux.HandleFunc("DELETE /admin/api/claude/token", a.require(a.clearToken))
-	mux.HandleFunc("POST /admin/api/claude/test", a.require(a.testClaude))
+	mux.HandleFunc("POST /admin/api/claude/check", a.require(a.checkClaude))
 }
 
 func (a *Admin) page(static fs.FS, name string) http.HandlerFunc {
@@ -316,18 +319,9 @@ func (a *Admin) deleteKey(w http.ResponseWriter, r *http.Request) {
 // --- claude auth ---------------------------------------------------------------
 
 func (a *Admin) claudeStatus(w http.ResponseWriter, r *http.Request) {
-	tok, source := a.tokens.Token()
-	token := map[string]any{"source": source, "hint": claude.Hint(tok)}
-	if t := a.tokens.SavedAt(); source == "login" && !t.IsZero() {
-		token["saved_at"] = t.UTC()
-	}
-	var mcp []string
-	for name := range a.runner.ServerMCP {
-		mcp = append(mcp, name)
-	}
-	sort.Strings(mcp)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token":   token,
+		"token":   a.tokenInfo(),
+		"auth":    a.status.Auth(a.tokens.Version()),
 		"login":   a.login.Status(),
 		"runtime": a.status.Snapshot(),
 		"config": map[string]any{
@@ -335,10 +329,19 @@ func (a *Admin) claudeStatus(w http.ResponseWriter, r *http.Request) {
 			"models":         a.cfg.Models,
 			"max_concurrent": a.cfg.MaxConcurrent,
 			"default_effort": a.cfg.DefaultEffort,
-			"mcp_servers":    mcp,
 			"env_token_set":  a.cfg.EnvToken != "",
 		},
 	})
+}
+
+func (a *Admin) tokenInfo() map[string]any {
+	tok, source := a.tokens.Token()
+	token := map[string]any{"source": source, "hint": claude.Hint(tok)}
+	if t := a.tokens.SavedAt(); source == "login" && !t.IsZero() {
+		token["saved_at"] = t.UTC()
+		token["expires_about"] = t.Add(claude.TokenLifetime).UTC()
+	}
+	return token
 }
 
 func (a *Admin) startLogin(w http.ResponseWriter, r *http.Request) {
@@ -395,37 +398,53 @@ func (a *Admin) clearToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (a *Admin) testClaude(w http.ResponseWriter, r *http.Request) {
+// checkClaude answers "is the Claude login working?". A recent successful
+// request or check is reused; otherwise a one-word prompt is sent to Claude.
+// state is "valid", "login_required" or "error" (could not tell, e.g. network).
+func (a *Admin) checkClaude(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Model string `json:"model"`
+		Force bool `json:"force"`
 	}
 	_ = readJSON(r, &body)
-	model := body.Model
-	if model == "" {
-		model = "haiku"
+
+	a.checkMu.Lock()
+	defer a.checkMu.Unlock()
+
+	out := map[string]any{"token": a.tokenInfo()}
+	if info := a.status.Auth(a.tokens.Version()); !body.Force && info.State == "valid" &&
+		info.CheckedAt != nil && time.Since(*info.CheckedAt) < checkReuse {
+		out["state"], out["checked_at"], out["source"], out["cached"] = "valid", info.CheckedAt, info.Source, true
+		writeJSON(w, http.StatusOK, out)
+		return
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	release, err := a.runner.Acquire(ctx, 30*time.Second)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		out["state"], out["reason"] = "error", err.Error()
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 	defer release()
 	start := time.Now()
 	res, err := a.runner.Run(ctx, claude.RunOptions{
-		Model:        model,
+		Model:        "haiku",
 		SystemPrompt: "You are a connectivity check. Follow the instruction exactly.",
 		Content:      []claude.ContentBlock{{Type: "text", Text: "Reply with exactly the word OK and nothing else."}},
+		Probe:        true,
 	}, claude.Callbacks{})
-	out := map[string]any{"duration_ms": time.Since(start).Milliseconds()}
-	if err != nil {
-		out["ok"] = false
-		out["error"] = err.Error()
-	} else {
-		out["ok"] = true
-		out["reply"] = strings.TrimSpace(res.Text)
-		out["model"] = res.Model
+	now := time.Now().UTC()
+	out["checked_at"], out["source"], out["cached"] = now, "check", false
+	out["duration_ms"] = time.Since(start).Milliseconds()
+	var ce *claude.Error
+	switch {
+	case err == nil:
+		out["state"], out["reply"], out["model"] = "valid", strings.TrimSpace(res.Text), res.Model
+	case errors.As(err, &ce) && ce.Kind == "auth":
+		out["state"], out["reason"] = "login_required", ce.Message
+	default:
+		out["state"], out["reason"] = "error", err.Error()
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,12 +14,22 @@ import (
 
 	"github.com/atb00ker/claude-max-to-api/internal/claude"
 	"github.com/atb00ker/claude-max-to-api/internal/config"
+	"github.com/atb00ker/claude-max-to-api/internal/fakeclaude"
 	"github.com/atb00ker/claude-max-to-api/internal/keys"
 )
 
 const pw = "correct horse battery"
 
+func TestMain(m *testing.M) {
+	fakeclaude.MaybeRun()
+	os.Exit(m.Run())
+}
+
 func newServer(t *testing.T) *httptest.Server {
+	return newServerWith(t, "text")
+}
+
+func newServerWith(t *testing.T, scenario string) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := &config.Config{DataDir: dir, AdminPassword: pw, DefaultModel: "sonnet", Models: []string{"sonnet"}, MaxConcurrent: 1}
@@ -27,8 +38,11 @@ func newServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	tokens := claude.NewTokenStore(filepath.Join(dir, "tok"), "")
+	exe, _ := os.Executable()
 	runner := claude.NewRunner(1)
 	runner.Status = &claude.Status{}
+	runner.Bin, runner.WorkDir, runner.Tokens = exe, dir, tokens
+	runner.Env = func() []string { return append(os.Environ(), fakeclaude.EnvScenario+"="+scenario) }
 	login := claude.NewLoginManager("false", func() []string { return nil }, tokens)
 	a, err := New(cfg, ks, tokens, login, runner, runner.Status)
 	if err != nil {
@@ -144,5 +158,37 @@ func TestLimiter(t *testing.T) {
 	}
 	if !l.blocked("1.2.3.4") || l.blocked("5.6.7.8") {
 		t.Fatal("limiter")
+	}
+}
+
+func TestLoginCheck(t *testing.T) {
+	srv := newServerWith(t, "text")
+	bearer := map[string]string{"Authorization": "Bearer " + pw}
+	_, out := call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	if out["state"] != "valid" || out["cached"] != false || out["reply"] != "Hello world" {
+		t.Fatalf("first check %v", out)
+	}
+	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	if out["state"] != "valid" || out["cached"] != true {
+		t.Fatalf("second check should reuse the result: %v", out)
+	}
+	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{"force": true}, bearer)
+	if out["cached"] != false {
+		t.Fatalf("forced check %v", out)
+	}
+	_, out = call(t, http.DefaultClient, "GET", srv.URL+"/admin/api/claude", nil, bearer)
+	if out["auth"].(map[string]any)["state"] != "valid" {
+		t.Fatalf("status %v", out)
+	}
+
+	srv = newServerWith(t, "auth")
+	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	if out["state"] != "login_required" {
+		t.Fatalf("auth check %v", out)
+	}
+	// Checks always re-test, even right after a failure.
+	_, out = call(t, http.DefaultClient, "POST", srv.URL+"/admin/api/claude/check", map[string]any{}, bearer)
+	if out["state"] != "login_required" || out["cached"] != false {
+		t.Fatalf("repeat auth check %v", out)
 	}
 }

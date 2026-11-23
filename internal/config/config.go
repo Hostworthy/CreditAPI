@@ -17,6 +17,9 @@ type Config struct {
 	ListenAddr    string
 	DataDir       string
 	AdminPassword string
+	// PublicURL is how users reach this server (e.g. https://claude.example.com).
+	// It is used for the login link in "login required" errors.
+	PublicURL string
 
 	ClaudeBin  string
 	ClaudeHome string // HOME used for the claude CLI (credentials, cache)
@@ -32,8 +35,6 @@ type Config struct {
 	MaxConcurrent       int
 	QueueTimeout        time.Duration
 	RequestTimeout      time.Duration
-	MaxTurns            int
-	MCPConfigFile       string
 
 	ImageMaxDimension     int
 	MaxImages             int
@@ -47,10 +48,10 @@ type Config struct {
 // OwnEnvVars are consumed by this server and never forwarded to the claude
 // subprocess.
 var OwnEnvVars = []string{
-	"ADMIN_PASSWORD", "LISTEN_ADDR", "DATA_DIR", "CLAUDE_BIN", "CLAUDE_HOME",
+	"ADMIN_PASSWORD", "LISTEN_ADDR", "DATA_DIR", "CLAUDE_BIN", "CLAUDE_HOME", "PUBLIC_URL",
 	"DEFAULT_MODEL", "MODELS", "MODEL_ALIASES", "STRICT_MODELS", "DEFAULT_EFFORT",
 	"DEFAULT_SYSTEM_PROMPT", "MAX_CONCURRENT", "QUEUE_TIMEOUT", "REQUEST_TIMEOUT",
-	"MAX_TURNS", "MCP_CONFIG", "IMAGE_MAX_DIMENSION", "MAX_IMAGES", "ALLOW_IMAGE_URLS",
+	"IMAGE_MAX_DIMENSION", "MAX_IMAGES", "ALLOW_IMAGE_URLS",
 	"ALLOW_PRIVATE_IMAGE_URLS", "MAX_BODY_MB", "LOG_LEVEL", "CLAUDE_CODE_OAUTH_TOKEN",
 }
 
@@ -60,6 +61,7 @@ func Load() (*Config, error) {
 		ListenAddr:            env("LISTEN_ADDR", ":8080"),
 		DataDir:               env("DATA_DIR", "./data"),
 		AdminPassword:         os.Getenv("ADMIN_PASSWORD"),
+		PublicURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/"),
 		ClaudeBin:             env("CLAUDE_BIN", "claude"),
 		EnvToken:              strings.TrimSpace(os.Getenv("CLAUDE_CODE_OAUTH_TOKEN")),
 		DefaultModel:          env("DEFAULT_MODEL", "sonnet"),
@@ -67,16 +69,12 @@ func Load() (*Config, error) {
 		StrictModels:          envBool("STRICT_MODELS", false),
 		DefaultEffort:         strings.ToLower(os.Getenv("DEFAULT_EFFORT")),
 		DefaultSystemPrompt:   env("DEFAULT_SYSTEM_PROMPT", "You are a helpful assistant."),
-		MCPConfigFile:         os.Getenv("MCP_CONFIG"),
 		AllowImageURLs:        envBool("ALLOW_IMAGE_URLS", true),
 		AllowPrivateImageURLs: envBool("ALLOW_PRIVATE_IMAGE_URLS", false),
 		LogLevel:              strings.ToLower(env("LOG_LEVEL", "info")),
 	}
 	var err error
 	if c.MaxConcurrent, err = envInt("MAX_CONCURRENT", 2); err != nil {
-		return nil, err
-	}
-	if c.MaxTurns, err = envInt("MAX_TURNS", 10); err != nil {
 		return nil, err
 	}
 	if c.ImageMaxDimension, err = envInt("IMAGE_MAX_DIMENSION", 1568); err != nil {
@@ -109,9 +107,8 @@ func Load() (*Config, error) {
 	if c.MaxConcurrent < 1 {
 		return nil, errors.New("MAX_CONCURRENT must be at least 1")
 	}
-	if c.MaxTurns < 2 {
-		// Structured output needs a second turn for the StructuredOutput tool.
-		c.MaxTurns = 2
+	if c.PublicURL != "" && !strings.HasPrefix(c.PublicURL, "http://") && !strings.HasPrefix(c.PublicURL, "https://") {
+		return nil, errors.New("PUBLIC_URL must start with http:// or https://")
 	}
 	switch c.DefaultEffort {
 	case "", "low", "medium", "high", "xhigh", "max":

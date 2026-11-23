@@ -22,7 +22,7 @@
 <main class="wrap">
   <section class="card" id="signin" hidden>
     <h1>Admin sign-in</h1>
-    <p class="muted">Sign in with the server's admin password to connect your Claude subscription.</p>
+    <p class="muted">Sign in with the server's admin password to manage the Claude login.</p>
     <form id="signin-form" class="stack">
       <label for="password">Admin password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
@@ -34,23 +34,26 @@
   <div data-auth-only hidden>
     <section class="card">
       <h1>Claude subscription</h1>
-      <p id="token-status" class="muted">Loading…</p>
+      <div id="auth-box" class="status" data-state="checking" role="status" aria-live="polite">
+        <p id="auth-title" class="status-title">Checking your Claude login…</p>
+        <p id="auth-detail" class="status-detail"></p>
+      </div>
+      <p id="token-info" class="muted small-text"></p>
       <div class="row wrap-row">
-        <button type="button" class="primary" data-action="start-login">Sign in to Claude</button>
-        <button type="button" data-action="test">Test connection</button>
+        <button type="button" data-action="check">Check again</button>
+        <button type="button" data-action="start-login" hidden>Sign in again</button>
         <button type="button" class="danger-outline" data-action="clear-token" hidden>Remove saved login</button>
       </div>
-      <p id="test-result" class="result" role="status"></p>
     </section>
 
     <section class="card" id="flow" hidden>
-      <h2>Sign-in steps</h2>
+      <h2>Sign in to Claude</h2>
       <p id="flow-state" class="pill"></p>
 
       <ol class="steps big">
         <li>
-          <p>Open the Claude sign-in page and approve access.</p>
-          <p id="url-wait" class="muted">Starting <code>claude setup-token</code> on the server…</p>
+          <p>Open the Claude sign-in page (it opens in a new tab) and approve access.</p>
+          <p id="url-wait" class="muted">Preparing the sign-in link…</p>
           <div id="url-box" hidden>
             <a id="login-link" class="button primary" target="_blank" rel="noopener noreferrer">Open Claude sign-in</a>
             <details>
@@ -60,16 +63,20 @@
           </div>
         </li>
         <li>
-          <p>Claude then shows an authentication code. Copy it and paste it here.</p>
+          <p>Claude then shows an authentication code. Copy it, come back to this tab and paste it.</p>
           <form id="code-form" class="stack">
             <label for="code" class="sr-only">Authentication code</label>
-            <input id="code" name="code" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" placeholder="Paste the code from Claude" required>
+            <div class="row">
+              <input id="code" name="code" class="grow" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" placeholder="Paste the code from Claude" required>
+              <button type="button" data-action="paste-code" hidden>Paste</button>
+            </div>
             <button type="submit" class="primary">Finish sign-in</button>
           </form>
         </li>
       </ol>
       <p class="error" id="flow-error" role="alert"></p>
-      <div class="row">
+      <div class="row wrap-row">
+        <button type="button" data-action="restart-login" hidden>Start over</button>
         <button type="button" data-action="cancel-login">Cancel</button>
       </div>
       <details id="output-box">

@@ -29,6 +29,17 @@ type TokenStore struct {
 	envToken string
 	saved    string
 	savedAt  time.Time
+	version  int64 // bumped whenever the active token changes
+}
+
+// TokenLifetime is how long `claude setup-token` tokens are valid.
+const TokenLifetime = 365 * 24 * time.Hour
+
+// Version changes every time a token is saved or removed.
+func (t *TokenStore) Version() int64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.version
 }
 
 // NewTokenStore loads any token previously saved at path.
@@ -75,6 +86,7 @@ func (t *TokenStore) Save(token string) error {
 	t.mu.Lock()
 	t.saved = token
 	t.savedAt = time.Now()
+	t.version++
 	t.mu.Unlock()
 	return nil
 }
@@ -85,6 +97,7 @@ func (t *TokenStore) Clear() error {
 	defer t.mu.Unlock()
 	t.saved = ""
 	t.savedAt = time.Time{}
+	t.version++
 	if err := os.Remove(t.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -180,6 +193,7 @@ func (m *LoginManager) Start() (LoginStatus, error) {
 	m.mu.Unlock()
 
 	readDone := make(chan struct{})
+	slog.Info("claude sign-in started (claude setup-token)")
 	go func() {
 		defer close(readDone)
 		m.readLoop(gen, ptmx)

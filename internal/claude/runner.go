@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +48,9 @@ type RunOptions struct {
 	// mode). The reply is buffered and cleaned up (fences removed).
 	JSONObject      bool
 	MaxOutputTokens int
+	// Probe marks a login check: it always runs claude, even when the login
+	// is already known to be broken.
+	Probe bool
 }
 
 // ToolCall is a function call requested by Claude for the client to execute.
@@ -100,17 +102,29 @@ func (e *Error) Error() string { return e.Message }
 
 // Runner executes `claude -p` processes.
 type Runner struct {
-	Bin      string
-	WorkDir  string
-	MaxTurns int
-	// ServerMCP holds extra MCP servers (from MCP_CONFIG) that Claude may use
-	// on its own; their tools run inside this container.
-	ServerMCP map[string]json.RawMessage
-	Bridge    *Bridge
-	Env       func() []string
-	Status    *Status
+	Bin     string
+	WorkDir string
+	Bridge  *Bridge
+	Env     func() []string
+	Status  *Status
+	// Tokens (optional) lets the runner tell when the login has changed.
+	Tokens *TokenStore
 
 	sem chan struct{}
+}
+
+// structuredTurns allows the StructuredOutput tool call plus one retry.
+const structuredTurns = 3
+
+// failFastWindow is how long a "login required" result is reused for new
+// requests (with the same token) before claude is tried again.
+const failFastWindow = 5 * time.Minute
+
+func (r *Runner) tokenVersion() int64 {
+	if r.Tokens == nil {
+		return 0
+	}
+	return r.Tokens.Version()
 }
 
 // NewRunner creates a runner allowing maxConcurrent simultaneous processes.
@@ -137,27 +151,6 @@ func (r *Runner) Acquire(ctx context.Context, timeout time.Duration) (func(), er
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-}
-
-// LoadMCPConfig reads an MCP config file ({"mcpServers": {...}}).
-func LoadMCPConfig(path string) (map[string]json.RawMessage, error) {
-	if path == "" {
-		return nil, nil
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var f struct {
-		MCPServers map[string]json.RawMessage `json:"mcpServers"`
-	}
-	if err := json.Unmarshal(b, &f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
-	}
-	if _, ok := f.MCPServers[BridgeServerName]; ok {
-		return nil, fmt.Errorf("%s: the MCP server name %q is reserved, please rename it", path, BridgeServerName)
-	}
-	return f.MCPServers, nil
 }
 
 // --- stream-json wire types -------------------------------------------------
@@ -225,6 +218,28 @@ type block struct {
 
 // Run executes one completion and blocks until it finishes.
 func (r *Runner) Run(ctx context.Context, opts RunOptions, cb Callbacks) (*Result, error) {
+	version := r.tokenVersion()
+	if !opts.Probe {
+		if reason, ok := r.Status.loginKnownBroken(version, failFastWindow); ok {
+			return nil, &Error{Kind: "auth", Status: 401, Message: reason}
+		}
+	}
+	res, err := r.run(ctx, opts, cb)
+	source := "request"
+	if opts.Probe {
+		source = "check"
+	}
+	var ce *Error
+	switch {
+	case err == nil:
+		r.Status.recordAuth(true, "", version, source)
+	case errors.As(err, &ce) && ce.Kind == "auth":
+		r.Status.recordAuth(false, ce.Message, version, source)
+	}
+	return res, err
+}
+
+func (r *Runner) run(ctx context.Context, opts RunOptions, cb Callbacks) (*Result, error) {
 	tmp, err := os.MkdirTemp("", "cmta-run-")
 	if err != nil {
 		return nil, err
@@ -253,31 +268,23 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions, cb Callbacks) (*Resul
 		args = append(args, "--effort", opts.Effort)
 	}
 
-	servers := map[string]any{}
-	var allowed []string
-	for name, cfg := range r.ServerMCP {
-		servers[name] = cfg
-		allowed = append(allowed, "mcp__"+name)
-	}
+	// Client tools are offered through a per-request loopback MCP endpoint.
 	if len(opts.Tools) > 0 && r.Bridge != nil {
 		url, unregister := r.Bridge.Register(opts.Tools)
 		defer unregister()
-		servers[BridgeServerName] = map[string]any{"type": "http", "url": url}
-		allowed = append(allowed, "mcp__"+BridgeServerName)
-	}
-	if len(servers) > 0 {
-		b, _ := json.Marshal(map[string]any{"mcpServers": servers})
+		b, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{
+			BridgeServerName: map[string]any{"type": "http", "url": url},
+		}})
 		mcpFile := filepath.Join(tmp, "mcp.json")
 		if err := os.WriteFile(mcpFile, b, 0o600); err != nil {
 			return nil, err
 		}
-		sort.Strings(allowed)
-		args = append(args, "--mcp-config", mcpFile, "--allowedTools", strings.Join(allowed, ","))
+		args = append(args, "--mcp-config", mcpFile, "--allowedTools", "mcp__"+BridgeServerName)
 	}
 
 	maxTurns := 1
-	if len(r.ServerMCP) > 0 || len(opts.JSONSchema) > 0 {
-		maxTurns = r.MaxTurns
+	if len(opts.JSONSchema) > 0 {
+		maxTurns = structuredTurns
 	}
 	args = append(args, "--max-turns", strconv.Itoa(maxTurns))
 	if len(opts.JSONSchema) > 0 {
@@ -578,7 +585,7 @@ func classify(status int, msg string) *Error {
 	case status == 401 || status == 403 || strings.Contains(lower, "/login") ||
 		strings.Contains(lower, "failed to authenticate") || strings.Contains(lower, "not logged in") ||
 		strings.Contains(lower, "oauth token") || strings.Contains(lower, "invalid api key"):
-		return &Error{Kind: "auth", Status: 503, Message: "Claude is not signed in or the token expired. An admin needs to sign in again at /login. (" + truncate(msg, 300) + ")"}
+		return &Error{Kind: "auth", Status: 401, Message: "Claude login required (" + truncate(strings.TrimSpace(msg), 300) + ")"}
 	case status == 429 || strings.Contains(lower, "rate limit") || strings.Contains(lower, "usage limit"):
 		return &Error{Kind: "rate_limit", Status: 429, Message: truncate(msg, 500)}
 	case status == 529 || strings.Contains(lower, "overloaded"):

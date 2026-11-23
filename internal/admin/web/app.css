@@ -9,6 +9,9 @@
   --accent-text: #ffffff;
   --danger: #b42318;
   --ok: #1a7f37;
+  --ok-bg: #e9f6ec;
+  --warn: #b54708;
+  --warn-bg: #fdf3e7;
   --code-bg: #f0eee9;
   --bar-bg: #ebe8e1;
   --radius: 12px;
@@ -26,6 +29,9 @@
     --accent-text: #1a1917;
     --danger: #f97066;
     --ok: #4ac26b;
+    --ok-bg: #1d2e22;
+    --warn: #f5a35b;
+    --warn-bg: #33261b;
     --code-bg: #2d2c28;
     --bar-bg: #34322e;
     --shadow: none;
@@ -168,6 +174,23 @@ pre { padding: 12px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: any
 .usage .label { display: flex; justify-content: space-between; font-size: 0.875rem; color: var(--muted); }
 .bar { height: 8px; background: var(--bar-bg); border-radius: 99px; overflow: hidden; }
 .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+
+.status {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 8px 0 10px;
+  background: var(--code-bg);
+}
+.status-title { font-weight: 650; margin: 0; }
+.status-detail { margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.status-detail:empty { display: none; }
+.status[data-state="valid"] { border-color: var(--ok); background: var(--ok-bg); }
+.status[data-state="login_required"],
+.status[data-state="error"] { border-color: var(--warn); background: var(--warn-bg); }
+.small-text { font-size: 0.875rem; }
+#claude-summary[data-state="valid"] { color: var(--ok); }
+#claude-summary[data-state="login_required"] { color: var(--warn); font-weight: 600; }
 
 .pill {
   display: inline-block;

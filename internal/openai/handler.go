@@ -202,9 +202,10 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		MaxOutputTokens: maxTokens,
 	}
 
+	loginURL := h.loginURL(r)
 	release, err := h.runner.Acquire(ctx, h.cfg.QueueTimeout)
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, err, loginURL)
 		return
 	}
 	defer release()
@@ -220,9 +221,9 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	var res *claude.Result
 	if req.Stream {
-		res, err = h.stream(ctx, w, opts, id, created, respModel, stops, singleTool, req.StreamOptions != nil && req.StreamOptions.IncludeUsage)
+		res, err = h.stream(ctx, w, opts, id, created, respModel, stops, singleTool, req.StreamOptions != nil && req.StreamOptions.IncludeUsage, loginURL)
 	} else {
-		res, err = h.complete(ctx, w, opts, id, created, respModel, stops, singleTool)
+		res, err = h.complete(ctx, w, opts, id, created, respModel, stops, singleTool, loginURL)
 	}
 
 	attrs := []any{"key", key.Name, "model", model, "stream", req.Stream, "images", conv.images,
@@ -340,10 +341,10 @@ func (h *Handler) runWithStops(ctx context.Context, opts claude.RunOptions, stop
 	return res, text.String(), nil
 }
 
-func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, opts claude.RunOptions, id string, created int64, model string, stops []string, singleTool bool) (*claude.Result, error) {
+func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, opts claude.RunOptions, id string, created int64, model string, stops []string, singleTool bool, loginURL string) (*claude.Result, error) {
 	res, text, err := h.runWithStops(ctx, opts, stops, claude.Callbacks{}, nil)
 	if err != nil {
-		h.fail(w, err)
+		h.fail(w, err, loginURL)
 		return nil, err
 	}
 	msg := &ResponseMsg{Role: "assistant"}
@@ -406,7 +407,7 @@ func (s *sseWriter) raw(line string) {
 	s.f.Flush()
 }
 
-func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude.RunOptions, id string, created int64, model string, stops []string, singleTool, includeUsage bool) (*claude.Result, error) {
+func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude.RunOptions, id string, created int64, model string, stops []string, singleTool, includeUsage bool, loginURL string) (*claude.Result, error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		err := errors.New("streaming not supported by this connection")
@@ -467,7 +468,7 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude
 	res, _, err := h.runWithStops(ctx, opts, stops, cb, onText)
 	if err != nil {
 		if ctx.Err() == nil {
-			_, typ, code, msg := describeError(err)
+			_, typ, code, msg := describeError(err, loginURL)
 			sse.data(ErrorBody{Error: ErrorDetail{Message: msg, Type: typ, Code: &code}})
 			sse.raw("data: [DONE]\n\n")
 		}
@@ -493,12 +494,31 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, opts claude
 	return res, nil
 }
 
-func describeError(err error) (status int, typ, code, msg string) {
+// loginURL is the address of the /login page shown in "login required"
+// errors: PUBLIC_URL when set, otherwise the address the client used.
+func (h *Handler) loginURL(r *http.Request) string {
+	if h.cfg.PublicURL != "" {
+		return h.cfg.PublicURL + "/login"
+	}
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	host := r.Host
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+		host = strings.TrimSpace(strings.Split(fh, ",")[0])
+	}
+	return scheme + "://" + host + "/login"
+}
+
+func describeError(err error, loginURL string) (status int, typ, code, msg string) {
 	var ce *claude.Error
 	if errors.As(err, &ce) {
 		switch ce.Kind {
 		case "auth":
-			return ce.Status, "service_unavailable", "claude_not_authenticated", ce.Message
+			// 401 so OpenAI SDKs do not retry; the message carries the link.
+			return http.StatusUnauthorized, "authentication_error", "claude_login_required",
+				"Claude login required: this server's Claude subscription is signed out or its token expired. Sign in at " + loginURL + " and then try again."
 		case "rate_limit":
 			return ce.Status, "rate_limit_error", "rate_limit_exceeded", ce.Message
 		case "busy":
@@ -516,11 +536,11 @@ func describeError(err error) (status int, typ, code, msg string) {
 	return http.StatusInternalServerError, "api_error", "internal_error", err.Error()
 }
 
-func (h *Handler) fail(w http.ResponseWriter, err error) {
+func (h *Handler) fail(w http.ResponseWriter, err error, loginURL string) {
 	if errors.Is(err, context.Canceled) {
 		return // client went away
 	}
-	status, typ, code, msg := describeError(err)
+	status, typ, code, msg := describeError(err, loginURL)
 	writeError(w, status, typ, code, msg)
 }
 

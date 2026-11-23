@@ -77,7 +77,7 @@ func TestExtractJSON(t *testing.T) {
 }
 
 func TestClassify(t *testing.T) {
-	if e := classify(401, "Failed to authenticate"); e.Kind != "auth" || e.Status != 503 {
+	if e := classify(401, "Failed to authenticate"); e.Kind != "auth" || e.Status != 401 {
 		t.Fatalf("auth: %+v", e)
 	}
 	if e := classify(0, "Invalid API key · Please run /login"); e.Kind != "auth" {
@@ -172,7 +172,6 @@ func newTestRunner(t *testing.T, scenario string) (*Runner, string) {
 	r := NewRunner(2)
 	r.Bin = exe
 	r.WorkDir = dir
-	r.MaxTurns = 5
 	r.Bridge = b
 	r.Status = &Status{}
 	r.Env = func() []string {
@@ -289,20 +288,65 @@ func TestRunnerStructuredOutput(t *testing.T) {
 		t.Fatalf("text should be suppressed in JSON mode: %v", deltas)
 	}
 	args := strings.Join(readRecord(t, record).Args, " ")
-	if !strings.Contains(args, `--json-schema {"type":"object"}`) || !strings.Contains(args, "--max-turns 5") {
+	if !strings.Contains(args, `--json-schema {"type":"object"}`) || !strings.Contains(args, "--max-turns 3") {
 		t.Fatalf("args %s", args)
 	}
 }
 
-func TestRunnerAuthError(t *testing.T) {
-	r, _ := newTestRunner(t, "auth")
-	_, err := r.Run(context.Background(), RunOptions{Model: "sonnet", Content: []ContentBlock{{Type: "text", Text: "x"}}}, Callbacks{})
+func TestRunnerAuthErrorAndFailFast(t *testing.T) {
+	r, record := newTestRunner(t, "auth")
+	r.Tokens = NewTokenStore(filepath.Join(t.TempDir(), "tok"), "")
+	opts := RunOptions{Model: "sonnet", Content: []ContentBlock{{Type: "text", Text: "x"}}}
+	_, err := r.Run(context.Background(), opts, Callbacks{})
 	var ce *Error
-	if !errors.As(err, &ce) || ce.Kind != "auth" || ce.Status != 503 {
+	if !errors.As(err, &ce) || ce.Kind != "auth" || ce.Status != 401 {
 		t.Fatalf("err %v", err)
 	}
-	if !strings.Contains(ce.Message, "/login") {
-		t.Fatalf("message should point to /login: %s", ce.Message)
+	if a := r.Status.Auth(r.Tokens.Version()); a.State != "login_required" || a.Source != "request" {
+		t.Fatalf("auth state %+v", a)
+	}
+
+	// Same token: fail fast without starting claude.
+	_ = os.Remove(record)
+	if _, err := r.Run(context.Background(), opts, Callbacks{}); !errors.As(err, &ce) || ce.Kind != "auth" {
+		t.Fatalf("fail-fast err %v", err)
+	}
+	if _, err := os.Stat(record); err == nil {
+		t.Fatal("claude was started although the login is known to be broken")
+	}
+
+	// A probe always runs claude.
+	probe := opts
+	probe.Probe = true
+	_, _ = r.Run(context.Background(), probe, Callbacks{})
+	if _, err := os.Stat(record); err != nil {
+		t.Fatal("probe did not run claude")
+	}
+	if a := r.Status.Auth(r.Tokens.Version()); a.Source != "check" {
+		t.Fatalf("auth state %+v", a)
+	}
+
+	// A new token resets the state, so claude is tried again.
+	_ = os.Remove(record)
+	if err := r.Tokens.Save(fakeclaude.FakeToken); err != nil {
+		t.Fatal(err)
+	}
+	if a := r.Status.Auth(r.Tokens.Version()); a.State != "unknown" {
+		t.Fatalf("state after new token %+v", a)
+	}
+	_, _ = r.Run(context.Background(), opts, Callbacks{})
+	if _, err := os.Stat(record); err != nil {
+		t.Fatal("claude not retried after token change")
+	}
+}
+
+func TestRunnerRecordsValidLogin(t *testing.T) {
+	r, _ := newTestRunner(t, "text")
+	if _, err := r.Run(context.Background(), RunOptions{Model: "sonnet", Content: []ContentBlock{{Type: "text", Text: "x"}}}, Callbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	if a := r.Status.Auth(0); a.State != "valid" || a.CheckedAt == nil {
+		t.Fatalf("auth %+v", a)
 	}
 }
 

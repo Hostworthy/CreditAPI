@@ -22,6 +22,55 @@ type Status struct {
 	failed        int64
 	inFlight      int
 	cliVersion    string
+
+	auth AuthInfo
+}
+
+// AuthInfo is what we last learned about the Claude login, from a real
+// request or from a login check.
+type AuthInfo struct {
+	State     string     `json:"state"` // unknown, valid, login_required
+	Reason    string     `json:"reason,omitempty"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	Source    string     `json:"source,omitempty"` // request or check
+	Version   int64      `json:"-"`
+}
+
+func (s *Status) recordAuth(valid bool, reason string, version int64, source string) {
+	if s == nil {
+		return
+	}
+	now := time.Now()
+	info := AuthInfo{State: "valid", CheckedAt: &now, Source: source, Version: version}
+	if !valid {
+		info.State = "login_required"
+		info.Reason = reason
+	}
+	s.mu.Lock()
+	s.auth = info
+	s.mu.Unlock()
+}
+
+// Auth returns the last known login state for the given token version.
+// Results recorded for an older token count as unknown.
+func (s *Status) Auth(version int64) AuthInfo {
+	if s == nil {
+		return AuthInfo{State: "unknown"}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.auth.State == "" || s.auth.Version != version {
+		return AuthInfo{State: "unknown"}
+	}
+	return s.auth
+}
+
+func (s *Status) loginKnownBroken(version int64, within time.Duration) (string, bool) {
+	a := s.Auth(version)
+	if a.State == "login_required" && a.CheckedAt != nil && time.Since(*a.CheckedAt) < within {
+		return a.Reason, true
+	}
+	return "", false
 }
 
 // StatusSnapshot is the JSON view of Status.

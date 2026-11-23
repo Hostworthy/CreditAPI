@@ -18,11 +18,11 @@ SparkyFitness ──OpenAI API──▶ claude-max-to-api ──stream-json─�
 ## Features
 
 - **`/v1/chat/completions`** with streaming (SSE) and non-streaming responses, plus `/v1/models`.
-- **Tool / function calling.** Your app's tools are handed to Claude as real tools
-  (through a tiny built-in MCP bridge), so Claude sees the exact JSON schemas.
-  When Claude calls one, the call is returned to your app as `tool_calls`; your
-  app runs it and sends the result back as usual. Parallel calls and streamed
-  argument deltas are supported.
+- **Tool / function calling.** Your app's tools are handed to Claude as real
+  tools, so Claude sees the exact JSON schemas. When Claude calls one, the call
+  is returned to your app as `tool_calls`; your app runs it and sends the
+  result back as usual. Parallel calls and streamed argument deltas are
+  supported. Nothing needs configuring for this.
 - **Photos.** `image_url` parts as data URLs, bare base64 or http(s) links.
   Large phone photos are downscaled (1568 px by default) and EXIF rotation is
   applied, which keeps requests fast and cheap. JPEG, PNG, GIF and WebP.
@@ -31,11 +31,13 @@ SparkyFitness ──OpenAI API──▶ claude-max-to-api ──stream-json─�
   fences stripped). This is what SparkyFitness's food photo and label scans need.
 - **Virtual API keys** created and revoked at `/admin`, stored only as SHA-256 hashes,
   with per-key request and token counters.
-- **Phone-friendly Claude login** at `/login`: the server runs `claude setup-token`,
+- **Phone-friendly Claude login** at `/login`. It first checks whether the
+  current login still works and simply tells you when it does. Only when a
+  sign-in is needed does it start one: the server runs `claude setup-token`,
   shows you the sign-in link, and you paste back the code Claude gives you.
+- **Clear "login required" errors.** When the login has expired, API clients
+  get a 401 whose message contains the link to `/login`.
 - **Subscription usage** (5-hour and 7-day windows) shown on the dashboard.
-- Optional **MCP servers** that Claude may use by itself (for example the
-  SparkyFitness MCP server).
 - Small footprint: a static Go binary plus the native Claude Code binary in a
   Debian slim image. Idle memory is a few MB; no Node.js.
 
@@ -49,15 +51,20 @@ docker compose up -d --build
 
 Then, from any browser (your phone is fine):
 
-1. Open `http://your-server:8080/login`, enter the admin password and tap
-   **Sign in to Claude**.
-2. Tap **Open Claude sign-in**, log in with your Claude account and approve.
-3. Claude shows an authentication code. Copy it, go back to the `/login` tab,
-   paste it and tap **Finish sign-in**. The page runs a test prompt to confirm
-   it works. The long-lived token (valid for about a year) is saved in the
-   `/data` volume.
+1. Open `http://your-server:8080/login` and enter the admin password. The page
+   checks the Claude login. On a fresh install it finds none and starts a
+   sign-in by itself (if the login already works it just says you're all set).
+2. Tap **Open Claude sign-in** (a new tab), log in with your Claude account and approve.
+3. Claude shows an authentication code. Copy it, come back to the `/login` tab
+   and tap **Paste** (or paste it into the box) and **Finish sign-in**. The page
+   verifies the login with a one-word test prompt. The long-lived token (valid
+   for about a year) is saved in the `/data` volume.
 4. Open `/admin`, create a key (for example `sparkyfitness`) and copy it. It is
    shown only once.
+
+Reloading `/login` in the middle of a sign-in resumes it instead of starting
+over, so a code you already copied stays valid. The **Paste** button needs the
+page to be served over HTTPS.
 
 > **Why a code and not a redirect?** Claude's sign-in for the CLI ends on
 > Anthropic's own page, which displays a code. The server cannot receive that
@@ -92,9 +99,32 @@ both apps run in Docker, attach this container to SparkyFitness's network
 only allows private-network AI URLs for admins or when
 `ALLOW_PRIVATE_NETWORK_AI=true` is set on SparkyFitness.
 
-SparkyFitness's chat sends its own tools with every request, so no MCP setup is
-needed for it. See [MCP servers](#mcp-servers-optional) if you want Claude to
-reach SparkyFitness directly from other clients.
+## When the Claude login expires
+
+SparkyFitness treats this server like any OpenAI-compatible provider, so it
+cannot open this server's login page by itself. What it receives instead is a
+standard OpenAI error that explains what to do:
+
+```
+HTTP/1.1 401 Unauthorized
+
+{"error": {"type": "authentication_error", "code": "claude_login_required",
+  "message": "Claude login required: this server's Claude subscription is signed out or its token expired. Sign in at https://claude.example.com/login and then try again."}}
+```
+
+If SparkyFitness shows the provider's error message in the chat, the link is
+right there; otherwise open `/login` yourself. Either way `/login` checks the
+login first and starts a sign-in only when one is needed.
+
+- Set `PUBLIC_URL` to the address you use in the browser. Without it the link
+  uses the address the client called, which for SparkyFitness in Docker is an
+  internal name like `http://claude-max-to-api:8080`.
+- 401 is used (not 5xx) so OpenAI client libraries report it at once instead of retrying.
+- After a "login required" result, further requests fail immediately for up
+  to 5 minutes without starting `claude`, until the token changes or `/login`
+  re-checks.
+- `GET /healthz` includes `"claude_login": "valid" | "login_required" | "unknown"`,
+  handy for an uptime monitor that alerts you.
 
 ## Use it from code
 
@@ -145,6 +175,7 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | Variable | Default | Description |
 |---|---|---|
 | `ADMIN_PASSWORD` | (required) | Protects `/admin`, `/login` and the admin API. Minimum 8 characters. |
+| `PUBLIC_URL` | | Address users open in the browser, e.g. `https://claude.example.com`. Used for the login link in errors. |
 | `DEFAULT_MODEL` | `sonnet` | Model for requests without a known model name. |
 | `MODELS` | `opus,sonnet,haiku` | Models listed by `/v1/models`. |
 | `MODEL_ALIASES` | | e.g. `gpt-4o=sonnet,gpt-4o-mini=haiku` |
@@ -159,8 +190,6 @@ All settings are environment variables (see [`.env.example`](.env.example)).
 | `ALLOW_IMAGE_URLS` | `true` | Fetch `http(s)` image links. |
 | `ALLOW_PRIVATE_IMAGE_URLS` | `false` | Allow image links to private/LAN addresses. |
 | `MAX_BODY_MB` | `50` | Maximum request size. |
-| `MCP_CONFIG` | | Path to an MCP config file for server-side MCP servers. |
-| `MAX_TURNS` | `10` | Turn limit when Claude uses server-side MCP tools. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | | Optional token from `claude setup-token`. |
 | `DATA_DIR` | `/data` in Docker, `./data` otherwise | Keys, saved login, Claude CLI state. |
 | `LISTEN_ADDR` | `:8080` | Listen address. |
@@ -173,29 +202,6 @@ CLI bill that API key instead of your subscription, so leave it unset.
 To pin the Claude Code version, build with
 `docker compose build --build-arg CLAUDE_VERSION=2.1.323` (default `stable`,
 or `latest`).
-
-## MCP servers (optional)
-
-Mount an MCP config and set `MCP_CONFIG` to give Claude tools it can call on
-its own, inside this container. For example, to let Claude read and log data
-in SparkyFitness through its MCP server (`POST /mcp` with a SparkyFitness API
-key):
-
-```json
-{
-  "mcpServers": {
-    "sparkyfitness": {
-      "type": "http",
-      "url": "http://sparkyfitness-server:3010/mcp",
-      "headers": { "Authorization": "Bearer <SparkyFitness API key>" }
-    }
-  }
-}
-```
-
-Every tool of a configured server is allowed without prompting, so only add
-servers you trust and prefer read-only keys where possible. These tools are
-used for every API client of this server, alongside any tools the client sends.
 
 ## Admin API
 
@@ -211,10 +217,10 @@ curl -X POST https://your-server/admin/api/keys \
 | Method and path | Purpose |
 |---|---|
 | `GET /admin/api/keys`, `POST /admin/api/keys`, `PATCH`/`DELETE /admin/api/keys/{id}` | Manage virtual keys |
-| `GET /admin/api/claude` | Login state, token source, usage windows, CLI version |
+| `GET /admin/api/claude` | Login state, token source and expiry, usage windows, CLI version |
+| `POST /admin/api/claude/check` | Is the login working? Reuses a check or request from the last 10 minutes, otherwise sends a one-word prompt (`{"force": true}` always re-tests). Returns `valid`, `login_required` or `error`. |
 | `POST /admin/api/claude/login`, `POST /admin/api/claude/login/code`, `DELETE /admin/api/claude/login` | Drive the sign-in flow |
 | `PUT`/`DELETE /admin/api/claude/token` | Save or remove a token |
-| `POST /admin/api/claude/test` | Send a one-word test prompt |
 | `GET /healthz` | Health check (no auth) |
 
 ## How it works
@@ -226,8 +232,9 @@ curl -X POST https://your-server/admin/api/keys \
 - A single user message (with its images) is passed through directly. Longer
   conversations, including earlier tool calls and results, are rendered as a
   transcript in one message, so every request is stateless.
-- Client tools are served to Claude from a loopback-only MCP endpoint that
-  exists just for that request. As soon as Claude's message ends with
+- Client tools are offered to Claude through a private, loopback-only endpoint
+  (internally an MCP server, since that is how the CLI accepts extra tools)
+  that exists just for that request. As soon as Claude's message ends with
   `tool_use`, the server returns the calls and stops the process; nothing is
   executed on the server.
 - Usage is reported from Claude's own token counts (cache reads included in

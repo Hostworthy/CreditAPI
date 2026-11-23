@@ -34,7 +34,7 @@ func testConfig() *config.Config {
 	return &config.Config{
 		DefaultModel: "sonnet", Models: []string{"opus", "sonnet", "haiku"},
 		ModelAliases: map[string]string{"gpt-4o": "sonnet"}, DefaultSystemPrompt: "You are a helpful assistant.",
-		MaxConcurrent: 2, QueueTimeout: time.Second, RequestTimeout: 30 * time.Second, MaxTurns: 5,
+		MaxConcurrent: 2, QueueTimeout: time.Second, RequestTimeout: 30 * time.Second,
 		ImageMaxDimension: 64, MaxImages: 20, MaxBodyBytes: 10 << 20,
 	}
 }
@@ -57,7 +57,7 @@ func testHandler(t *testing.T, scenario string) (*Handler, string, string) {
 		t.Fatal(err)
 	}
 	r := claude.NewRunner(2)
-	r.Bin, r.WorkDir, r.MaxTurns, r.Bridge, r.Status = exe, dir, 5, bridge, &claude.Status{}
+	r.Bin, r.WorkDir, r.Bridge, r.Status = exe, dir, bridge, &claude.Status{}
 	r.Env = func() []string {
 		return append(os.Environ(), fakeclaude.EnvScenario+"="+scenario, fakeclaude.EnvRecord+"="+record)
 	}
@@ -528,8 +528,12 @@ func TestHTTPAuthErrorAndStop(t *testing.T) {
 	resp, out := doJSON(t, srv, key, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "hi"}},
 	})
-	if resp.StatusCode != 503 || out["error"].(map[string]any)["code"] != "claude_not_authenticated" {
+	e := out["error"].(map[string]any)
+	if resp.StatusCode != 401 || e["code"] != "claude_login_required" || e["type"] != "authentication_error" {
 		t.Fatalf("status %d %v", resp.StatusCode, out)
+	}
+	if want := srv.URL + "/login"; !strings.Contains(e["message"].(string), want) {
+		t.Fatalf("message should link to %s: %v", want, e["message"])
 	}
 
 	srv, key, _ = newServer(t, "slow")
@@ -543,5 +547,38 @@ func TestHTTPAuthErrorAndStop(t *testing.T) {
 	content := out["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)["content"]
 	if content != "one two " {
 		t.Fatalf("content %q", content)
+	}
+}
+
+func TestLoginURL(t *testing.T) {
+	h, _, _ := testHandler(t, "text")
+	r := httptest.NewRequest("POST", "http://claude-api:8080/v1/chat/completions", nil)
+	if got := h.loginURL(r); got != "http://claude-api:8080/login" {
+		t.Fatalf("derived %q", got)
+	}
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "claude.example.com")
+	if got := h.loginURL(r); got != "https://claude.example.com/login" {
+		t.Fatalf("forwarded %q", got)
+	}
+	h.cfg.PublicURL = "https://ai.example.org"
+	if got := h.loginURL(r); got != "https://ai.example.org/login" {
+		t.Fatalf("public %q", got)
+	}
+}
+
+func TestStreamLoginRequired(t *testing.T) {
+	srv, key, _ := newServer(t, "auth")
+	resp := streamRequest(t, srv, key, map[string]any{
+		"stream": true, "messages": []map[string]any{{"role": "user", "content": "hi"}},
+	})
+	events, done := readSSE(t, resp)
+	if !done {
+		t.Fatal("missing [DONE]")
+	}
+	last := events[len(events)-1]
+	e, ok := last["error"].(map[string]any)
+	if !ok || e["code"] != "claude_login_required" || !strings.Contains(e["message"].(string), "/login") {
+		t.Fatalf("last event %v", last)
 	}
 }
