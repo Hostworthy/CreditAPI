@@ -147,7 +147,7 @@ func (m *LoginManager) Start(subscription string, spec LoginSpec) (LoginStatus, 
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		st := m.Status(subscription)
-		if st.URL != "" || st.State == LoginFailed || st.State == LoginSuccess {
+		if st.URL != "" || st.Error != "" || st.State == LoginFailed || st.State == LoginSuccess {
 			return st, nil
 		}
 		time.Sleep(100 * time.Millisecond)

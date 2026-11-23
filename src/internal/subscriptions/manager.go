@@ -204,8 +204,8 @@ type Migration struct {
 // Claude (taking over an older install's token and CLI home), and one for
 // Cursor when CURSOR_API_KEY is set. Existing keys get access to both.
 func (m *Manager) Bootstrap(mig Migration) error {
-	if _, ok := m.backends["claude"]; ok {
-		sub, err := m.Store.Create("Claude", "claude", mig.KeyIDs, "CLAUDE_CODE_OAUTH_TOKEN")
+	if _, ok := m.backends[agent.ProviderClaude]; ok {
+		sub, err := m.Store.Create("Claude", agent.ProviderClaude, mig.KeyIDs, "CLAUDE_CODE_OAUTH_TOKEN")
 		if err != nil {
 			return err
 		}
@@ -224,8 +224,8 @@ func (m *Manager) Bootstrap(mig Migration) error {
 			}
 		}
 	}
-	if _, ok := m.backends["cursor"]; ok && mig.CursorEnv {
-		if _, err := m.Store.Create("Cursor", "cursor", mig.KeyIDs, "CURSOR_API_KEY"); err != nil {
+	if _, ok := m.backends[agent.ProviderCursor]; ok && mig.CursorEnv {
+		if _, err := m.Store.Create("Cursor", agent.ProviderCursor, mig.KeyIDs, "CURSOR_API_KEY"); err != nil {
 			return err
 		}
 	}
@@ -264,7 +264,7 @@ type Candidate struct {
 func (m *Manager) Candidates(keyID, requested string) ([]Candidate, error) {
 	requested = strings.TrimSpace(requested)
 	if requested != "" && !agent.ValidModelName(requested) {
-		return nil, &agent.Error{Kind: "invalid_model", Status: 400,
+		return nil, &agent.Error{Kind: agent.KindInvalidModel, Status: 400,
 			Message: "invalid model name: use letters, digits and . _ : / [ ] - (at most 128 characters)"}
 	}
 	subs := m.Store.ForKey(keyID)
@@ -275,7 +275,7 @@ func (m *Manager) Candidates(keyID, requested string) ([]Candidate, error) {
 				continue
 			}
 			if s.Disabled || !s.HasKey(keyID) {
-				return nil, &agent.Error{Kind: "forbidden", Status: 403,
+				return nil, &agent.Error{Kind: agent.KindForbidden, Status: 403,
 					Message: fmt.Sprintf("this API key cannot use the subscription %q", s.Name)}
 			}
 			acc, b, err := m.Account(s)
@@ -286,7 +286,7 @@ func (m *Manager) Candidates(keyID, requested string) ([]Candidate, error) {
 			if model == "" {
 				model = b.DefaultModel()
 			} else if !b.Accepts(model) {
-				return nil, &agent.Error{Kind: "not_found", Status: 404,
+				return nil, &agent.Error{Kind: agent.KindNotFound, Status: 404,
 					Message: fmt.Sprintf("model %s is not available on %q; see /v1/models", rest, s.Name)}
 			}
 			return []Candidate{{Sub: s, Account: acc, Backend: b, Model: model}}, nil
@@ -295,7 +295,7 @@ func (m *Manager) Candidates(keyID, requested string) ([]Candidate, error) {
 	}
 
 	if len(subs) == 0 {
-		return nil, &agent.Error{Kind: "forbidden", Status: 403,
+		return nil, &agent.Error{Kind: agent.KindForbidden, Status: 403,
 			Message: "this API key has no subscriptions; grant it one on the /admin page"}
 	}
 	model := m.alias(requested)
@@ -313,7 +313,7 @@ func (m *Manager) Candidates(keyID, requested string) ([]Candidate, error) {
 		}
 	}
 	if model != "" && len(accept) == 0 && m.routing.Strict {
-		return nil, &agent.Error{Kind: "not_found", Status: 404,
+		return nil, &agent.Error{Kind: agent.KindNotFound, Status: 404,
 			Message: fmt.Sprintf("model %s is not available; see /v1/models", requested)}
 	}
 	if m.routing.Strict && len(accept) > 0 {

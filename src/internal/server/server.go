@@ -217,7 +217,9 @@ func (s *Server) Run(ctx context.Context) error {
 		// Bounds slow request bodies. No WriteTimeout: it would cut streams.
 		ReadTimeout:    5 * time.Minute,
 		MaxHeaderBytes: 64 << 10,
-		IdleTimeout:    120 * time.Second,
+		// Connection and TLS errors go to the JSON log too.
+		ErrorLog:    slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
+		IdleTimeout: 120 * time.Second,
 	}
 	s.Start(ctx)
 	errc := make(chan error, 1)

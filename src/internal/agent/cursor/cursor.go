@@ -29,12 +29,12 @@ import (
 	"time"
 
 	"github.com/atb00ker/CreditAPI/src/internal/agent"
-	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 // Provider is the identifier stored with Cursor subscriptions.
-const Provider = "cursor"
+const Provider = agent.ProviderCursor
 
 // maxArgPrompt keeps the prompt argument well under Linux's 128 KiB limit
 // for a single argument; longer prompts are passed as a file.
@@ -166,7 +166,7 @@ func (b *Backend) harden(acc *agent.Account, ws string) error {
 	cfg["permissions"] = perms
 	cfg["approvalMode"] = "allowlist"
 	out, _ := json.MarshalIndent(cfg, "", "  ")
-	return keys.WriteFileAtomic(path, out, 0o600)
+	return fsutil.WriteFileAtomic(path, out, 0o600)
 }
 
 // --- prompt ----------------------------------------------------------------------
@@ -337,7 +337,7 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	start := time.Now()
 	proc, err := agent.StartProc(ctx, b.Bin, args, env, ws, nil)
 	if err != nil {
-		return nil, &agent.Error{Kind: "upstream", Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
+		return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
 	}
 
 	var textMu sync.Mutex
@@ -363,44 +363,14 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	case first := <-calls:
 		// The model wants the client to run a tool. Collect any parallel
 		// calls, then stop the CLI and hand them back.
-		pending := []agent.BridgeCall{first}
-		timer := time.NewTimer(toolGrace)
-	collect:
-		for {
-			select {
-			case c := <-calls:
-				pending = append(pending, c)
-			case <-timer.C:
-				break collect
-			}
-		}
+		pending := collectCalls(first, calls)
 		proc.Kill()
 		<-done
 		_ = proc.Wait()
 		textMu.Lock()
 		text := streamed.String()
 		textMu.Unlock()
-		res := &agent.Result{Text: text, FinishReason: "tool_calls", Model: opts.Model}
-		for i, c := range pending {
-			name := c.Name
-			if orig, ok := opts.ToolNames[name]; ok {
-				name = orig
-			}
-			argsJSON := strings.TrimSpace(string(c.Arguments))
-			if argsJSON == "" || argsJSON == "null" {
-				argsJSON = "{}"
-			}
-			call := agent.ToolCall{ID: newCallID(), Name: name, Arguments: argsJSON}
-			res.ToolCalls = append(res.ToolCalls, call)
-			if cb.ToolStart != nil {
-				cb.ToolStart(i, call.ID, call.Name)
-			}
-			if cb.ToolArgs != nil {
-				cb.ToolArgs(i, call.Arguments)
-			}
-		}
-		res.Usage = agent.Usage{InputTokens: agent.EstimateTokens(prompt), OutputTokens: agent.EstimateTokens(text) + 20*int64(len(pending))}
-		return res, nil
+		return toolCallResult(pending, text, prompt, opts, cb), nil
 	}
 	waitErr := proc.Wait()
 	if ctx.Err() != nil {
@@ -427,7 +397,7 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	case len(opts.JSONSchema) > 0:
 		j := agent.ExtractJSON(res.Text)
 		if j == nil {
-			return nil, &agent.Error{Kind: "upstream", Status: 502, Message: "Cursor did not return the requested structured JSON output"}
+			return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: "Cursor did not return the requested structured JSON output"}
 		}
 		res.StructuredOutput = j
 	case opts.JSONObject:
@@ -437,6 +407,47 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	slog.Debug(logging.Event("cursor", "run", "finished"), slog.String("model", res.Model),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()))
 	return res, nil
+}
+
+// collectCalls waits briefly for parallel tool calls after the first one.
+func collectCalls(first agent.BridgeCall, calls <-chan agent.BridgeCall) []agent.BridgeCall {
+	pending := []agent.BridgeCall{first}
+	timer := time.NewTimer(toolGrace)
+	defer timer.Stop()
+	for {
+		select {
+		case c := <-calls:
+			pending = append(pending, c)
+		case <-timer.C:
+			return pending
+		}
+	}
+}
+
+// toolCallResult turns the calls that reached the bridge into an OpenAI
+// tool_calls result, restoring the client's tool names.
+func toolCallResult(pending []agent.BridgeCall, text, prompt string, opts agent.RunOptions, cb agent.Callbacks) *agent.Result {
+	res := &agent.Result{Text: text, FinishReason: "tool_calls", Model: opts.Model}
+	for i, c := range pending {
+		name := c.Name
+		if orig, ok := opts.ToolNames[name]; ok {
+			name = orig
+		}
+		argsJSON := strings.TrimSpace(string(c.Arguments))
+		if argsJSON == "" || argsJSON == "null" {
+			argsJSON = "{}"
+		}
+		call := agent.ToolCall{ID: newCallID(), Name: name, Arguments: argsJSON}
+		res.ToolCalls = append(res.ToolCalls, call)
+		if cb.ToolStart != nil {
+			cb.ToolStart(i, call.ID, call.Name)
+		}
+		if cb.ToolArgs != nil {
+			cb.ToolArgs(i, call.Arguments)
+		}
+	}
+	res.Usage = agent.Usage{InputTokens: agent.EstimateTokens(prompt), OutputTokens: agent.EstimateTokens(text) + 20*int64(len(pending))}
+	return res
 }
 
 // parse reads the stream-json events. With --stream-partial-output, text

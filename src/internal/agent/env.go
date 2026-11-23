@@ -95,7 +95,7 @@ func (s *Slots) Acquire(ctx context.Context, timeout time.Duration) (func(), err
 			})
 		}, nil
 	case <-t.C:
-		return nil, &Error{Kind: "busy", Status: 429, Message: "server is busy: all slots are in use, try again shortly (raise MAX_CONCURRENT to allow more)"}
+		return nil, &Error{Kind: KindBusy, Status: 429, Message: "server is busy: all slots are in use, try again shortly (raise MAX_CONCURRENT to allow more)"}
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

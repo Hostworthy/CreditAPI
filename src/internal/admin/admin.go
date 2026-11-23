@@ -27,6 +27,8 @@ import (
 	"github.com/atb00ker/CreditAPI/src/internal/agent"
 	"github.com/atb00ker/CreditAPI/src/internal/config"
 	"github.com/atb00ker/CreditAPI/src/internal/forwarded"
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
+	"github.com/atb00ker/CreditAPI/src/internal/httpx"
 	"github.com/atb00ker/CreditAPI/src/internal/keys"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
 	"github.com/atb00ker/CreditAPI/src/internal/subscriptions"
@@ -79,7 +81,7 @@ func (a *Admin) rotateSecret() error {
 	if _, err := rand.Read(secret); err != nil {
 		return err
 	}
-	if err := keys.WriteFileAtomic(a.secretPath, secret, 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(a.secretPath, secret, 0o600); err != nil {
 		return err
 	}
 	a.setKey(secret)
@@ -460,11 +462,7 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
+func writeJSON(w http.ResponseWriter, status int, v any) { httpx.WriteJSON(w, status, v) }
 
 func jsonError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{"error": msg})

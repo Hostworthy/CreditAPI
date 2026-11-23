@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
 )
 
 // Subscription is one AI account. Its position in the list is its priority.
@@ -96,7 +96,7 @@ func (st *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return keys.WriteFileAtomic(st.path, b, 0o600)
+	return fsutil.WriteFileAtomic(st.path, b, 0o600)
 }
 
 // List returns all subscriptions in priority order.

@@ -3,9 +3,11 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -61,7 +63,24 @@ func withRequestLogging(next http.Handler) http.Handler {
 		id := resolveRequestID(r.Header.Get("X-Request-Id"))
 		w.Header().Set("X-Request-Id", id)
 		rec := &statusRecorder{ResponseWriter: w}
-		next.ServeHTTP(rec, r.WithContext(logging.WithRequestID(r.Context(), id)))
+		func() {
+			defer func() {
+				if p := recover(); p != nil {
+					if p == http.ErrAbortHandler {
+						panic(p) // the standard way to abort a response
+					}
+					slog.Default().LogAttrs(r.Context(), slog.LevelError, logging.Event("http", "request", "panicked"),
+						logging.RequestID(id), slog.String("path", r.URL.Path), slog.String("panic", fmt.Sprint(p)),
+						slog.String("stack", string(debug.Stack())))
+					if rec.status == 0 {
+						rec.Header().Set("Content-Type", "application/json")
+						rec.WriteHeader(http.StatusInternalServerError)
+						_, _ = rec.Write([]byte(`{"error":{"message":"internal server error; the server log has the details","type":"api_error","param":null,"code":"internal_error"}}` + "\n"))
+					}
+				}
+			}()
+			next.ServeHTTP(rec, r.WithContext(logging.WithRequestID(r.Context(), id)))
+		}()
 
 		level := slog.LevelInfo
 		if r.URL.Path == "/healthz" || strings.HasPrefix(r.URL.Path, "/assets/") {

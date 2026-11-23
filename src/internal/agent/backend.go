@@ -75,7 +75,7 @@ func Execute(ctx context.Context, b Backend, acc *Account, opts RunOptions, cb C
 	version := acc.Tokens.Version()
 	if !opts.Probe {
 		if reason, ok := acc.Status.LoginKnownBroken(version, FailFastWindow); ok {
-			return nil, &Error{Kind: "auth", Status: 401, Message: reason, Subscription: acc.ID}
+			return nil, &Error{Kind: KindAuth, Status: 401, Message: reason, Subscription: acc.ID}
 		}
 	}
 	res, err := b.Run(ctx, acc, opts, cb)
@@ -92,11 +92,11 @@ func Execute(ctx context.Context, b Backend, acc *Account, opts RunOptions, cb C
 		ce.Subscription = acc.ID
 		acc.Status.RecordError(ce.Message)
 		switch ce.Kind {
-		case "auth":
+		case KindAuth:
 			acc.Status.RecordAuth(false, ce.Message, version, source)
-		case "rate_limit":
+		case KindRateLimit:
 			acc.Status.CoolDown(time.Now().Add(RateLimitCooldown))
-		case "overloaded":
+		case KindOverloaded:
 			acc.Status.CoolDown(time.Now().Add(OverloadCooldown))
 		}
 	case ctx.Err() == nil:

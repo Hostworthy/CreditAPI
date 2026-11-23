@@ -23,7 +23,7 @@ import (
 )
 
 // Provider is the identifier stored with Claude subscriptions.
-const Provider = "claude"
+const Provider = agent.ProviderClaude
 
 // TokenLifetime is how long `claude setup-token` tokens are valid.
 const TokenLifetime = 365 * 24 * time.Hour
@@ -248,7 +248,7 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	start := time.Now()
 	proc, err := agent.StartProc(ctx, b.Bin, args, env, b.WorkDir, bytes.NewReader(append(input, '\n')))
 	if err != nil {
-		return nil, &agent.Error{Kind: "upstream", Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
+		return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: fmt.Sprintf("cannot start %s: %v", b.Bin, err)}
 	}
 	res, perr := b.parse(proc.Stdout, acc, opts, cb, proc.Kill)
 	if perr != nil || (res != nil && res.FinishReason == "tool_calls") {
@@ -478,7 +478,7 @@ func (b *Backend) parse(stdout io.Reader, acc *agent.Account, opts agent.RunOpti
 						} else if j := agent.ExtractJSON(res.Text); j != nil {
 							res.StructuredOutput = j
 						} else {
-							return nil, &agent.Error{Kind: "upstream", Status: 502, Message: "Claude did not return the requested structured JSON output"}
+							return nil, &agent.Error{Kind: agent.KindUpstream, Status: 502, Message: "Claude did not return the requested structured JSON output"}
 						}
 					}
 					res.FinishReason = "stop"

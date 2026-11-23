@@ -11,11 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
 )
 
 // KeyPrefix is prepended to every generated key so they are easy to spot.
@@ -230,39 +231,9 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	if err := WriteFileAtomic(s.path, b, 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(s.path, b, 0o600); err != nil {
 		return err
 	}
 	s.dirty = false
 	return nil
-}
-
-// WriteFileAtomic writes data to a temp file in the same directory and renames
-// it over path, so readers never observe a partially written file.
-func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // gone after a successful rename
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close() // the write error is the one to report
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close() // the write error is the one to report
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close() // the write error is the one to report
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }

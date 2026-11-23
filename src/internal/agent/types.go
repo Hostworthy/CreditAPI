@@ -115,7 +115,7 @@ func (e *Error) Error() string { return e.Message }
 // one failed.
 func (e *Error) Retryable() bool {
 	switch e.Kind {
-	case "auth", "rate_limit", "overloaded", "upstream":
+	case KindAuth, KindRateLimit, KindOverloaded, KindUpstream:
 		return true
 	}
 	return false
@@ -131,16 +131,16 @@ func Classify(label string, status int, msg string) *Error {
 		strings.Contains(lower, "not authenticated") || strings.Contains(lower, "authentication required") ||
 		strings.Contains(lower, "oauth token") ||
 		strings.Contains(lower, "invalid api key") || strings.Contains(lower, "unauthorized"):
-		return &Error{Kind: "auth", Status: 401, Message: label + " login required (" + Truncate(strings.TrimSpace(msg), 300) + ")"}
+		return &Error{Kind: KindAuth, Status: 401, Message: label + " login required (" + Truncate(strings.TrimSpace(msg), 300) + ")"}
 	case status == 429 || strings.Contains(lower, "rate limit") || strings.Contains(lower, "usage limit") ||
 		strings.Contains(lower, "quota"):
-		return &Error{Kind: "rate_limit", Status: 429, Message: Truncate(msg, 500)}
+		return &Error{Kind: KindRateLimit, Status: 429, Message: Truncate(msg, 500)}
 	case status == 529 || strings.Contains(lower, "overloaded"):
-		return &Error{Kind: "overloaded", Status: 503, Message: Truncate(msg, 500)}
+		return &Error{Kind: KindOverloaded, Status: 503, Message: Truncate(msg, 500)}
 	case status == 400 || status == 413 || strings.Contains(lower, "invalid request") || strings.Contains(lower, "invalid_request"):
-		return &Error{Kind: "invalid_request", Status: 400, Message: Truncate(msg, 500)}
+		return &Error{Kind: KindInvalidRequest, Status: 400, Message: Truncate(msg, 500)}
 	}
-	return &Error{Kind: "upstream", Status: 502, Message: Truncate(msg, 500)}
+	return &Error{Kind: KindUpstream, Status: 502, Message: Truncate(msg, 500)}
 }
 
 // ExtractJSON returns the first JSON object or array found in s (also inside
@@ -212,6 +212,25 @@ func ReadLine(rd *bufio.Reader, max int) ([]byte, error) {
 		return line, err
 	}
 }
+
+// Error kinds. Retryable kinds make the handler try the next subscription.
+const (
+	KindAuth           = "auth"
+	KindRateLimit      = "rate_limit"
+	KindOverloaded     = "overloaded"
+	KindUpstream       = "upstream"
+	KindInvalidRequest = "invalid_request"
+	KindInvalidModel   = "invalid_model"
+	KindBusy           = "busy"
+	KindForbidden      = "forbidden"
+	KindNotFound       = "not_found"
+)
+
+// Provider identifiers stored with subscriptions.
+const (
+	ProviderClaude = "claude"
+	ProviderCursor = "cursor"
+)
 
 // Truncate shortens s to n bytes, adding an ellipsis when cut.
 func Truncate(s string, n int) string {

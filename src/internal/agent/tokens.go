@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/fsutil"
 	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
@@ -81,7 +81,7 @@ func (t *TokenStore) Save(token string) error {
 		}
 	}
 	logging.RegisterSecret(token)
-	if err := keys.WriteFileAtomic(t.path, []byte(token+"\n"), 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(t.path, []byte(token+"\n"), 0o600); err != nil {
 		return err
 	}
 	t.mu.Lock()

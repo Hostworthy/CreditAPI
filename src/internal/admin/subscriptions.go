@@ -243,7 +243,7 @@ func (a *Admin) checkSubscription(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		out["state"], out["reply"], out["model"] = "valid", strings.TrimSpace(res.Text), res.Model
-	case errors.As(err, &ce) && ce.Kind == "auth":
+	case errors.As(err, &ce) && ce.Kind == agent.KindAuth:
 		out["state"], out["reason"] = "login_required", ce.Message
 	default:
 		out["state"], out["reason"] = "error", err.Error()

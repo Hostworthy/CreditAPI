@@ -241,3 +241,16 @@ func TestResolveRequestID(t *testing.T) {
 		}
 	}
 }
+
+func TestPanicIsRecovered(t *testing.T) {
+	logs := quietLogs(t)
+	h := withRequestLogging(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/x", nil))
+	if rec.Code != 500 || !strings.Contains(rec.Body.String(), "internal_error") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(logs.String(), "http.request.panicked") || !strings.Contains(logs.String(), "boom") {
+		t.Fatalf("panic not logged: %s", logs.String())
+	}
+}
