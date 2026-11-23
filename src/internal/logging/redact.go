@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 const redacted = "[REDACTED]"
@@ -98,7 +99,34 @@ func sanitize(a slog.Attr) slog.Attr {
 	return slog.Attr{Key: a.Key, Value: v}
 }
 
-// RedactString masks secrets embedded in s.
+var (
+	secretsMu sync.RWMutex
+	secrets   = map[string]struct{}{}
+)
+
+// RegisterSecret adds a value (a password, API key or token) that must never
+// appear in logs or error messages. Values shorter than 8 characters are
+// ignored, so common words are not masked everywhere.
+func RegisterSecret(v string) {
+	v = strings.TrimSpace(v)
+	if len(v) < 8 {
+		return
+	}
+	secretsMu.Lock()
+	secrets[v] = struct{}{}
+	secretsMu.Unlock()
+}
+
+// RedactString masks secrets embedded in s: anything shaped like an
+// Anthropic or CreditAPI key, and every registered secret.
 func RedactString(s string) string {
-	return secretPattern.ReplaceAllString(s, redacted)
+	s = secretPattern.ReplaceAllString(s, redacted)
+	secretsMu.RLock()
+	defer secretsMu.RUnlock()
+	for v := range secrets {
+		if strings.Contains(s, v) {
+			s = strings.ReplaceAll(s, v, redacted)
+		}
+	}
+	return s
 }

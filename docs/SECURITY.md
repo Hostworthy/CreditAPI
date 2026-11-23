@@ -30,8 +30,12 @@ what to do when you deploy it. For setup, see [SETUP.md](SETUP.md).
 - Client tools are only described to the CLI through a loopback endpoint with a
   random path per request. Calls are returned to the client; the server never
   executes them.
-- Request bodies are limited by `MAX_BODY_MB`, processes by `MAX_CONCURRENT` and
-  time by `REQUEST_TIMEOUT`.
+- Request bodies are limited by `MAX_BODY_MB`, waiting requests by
+  `MAX_PENDING`, processes by `MAX_CONCURRENT`, decoded image size by
+  `IMAGE_MAX_PIXELS` and time by `REQUEST_TIMEOUT`.
+- Message text cannot forge conversation structure: the tags used to lay out
+  the prompt (`<user>`, `<assistant>`, `<tool_call>`, `<tool_result>`,
+  `<instructions>`) are escaped inside client text.
 
 ## Cursor
 
@@ -75,15 +79,20 @@ your own account before relying on it.
 
 - Image links are downloaded only when `ALLOW_IMAGE_URLS=true`, without a proxy,
   with a 20 MB limit, three redirects at most and a 30 second timeout.
-- Links that resolve to private, loopback, link-local or carrier-grade NAT
-  addresses are refused unless `ALLOW_PRIVATE_IMAGE_URLS=true`.
+- Links that resolve to private, loopback, link-local, carrier-grade NAT,
+  documentation, benchmarking or reserved addresses (IPv4 and IPv6) are refused
+  unless `ALLOW_PRIVATE_IMAGE_URLS=true`. The check runs on the address actually
+  connected to, so DNS tricks do not bypass it.
 - The Claude CLI runs with auto-updates and non-essential traffic disabled.
 - The Cursor CLI contacts Cursor's servers for every request and sign-in.
 
 ## Logs
 
 Logs never contain tokens, keys, the admin password, sign-in codes, prompts or
-responses. A redacting handler drops sensitive fields and masks anything that
+responses. Every saved or configured credential and the admin password are
+registered with the log redactor, which also cleans error messages sent to API
+clients (local paths are replaced with `<data>` and `<tmp>`, and internal
+errors only say to check the server log). A redacting handler drops sensitive fields and masks anything that
 looks like an `sk-ant-` or `sk-credit-` secret, including inside error messages.
 Cursor sign-in output shown on `/login` comes from the CLI; it contains the
 sign-in link but no credentials.

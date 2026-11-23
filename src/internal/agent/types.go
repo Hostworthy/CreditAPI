@@ -184,6 +184,14 @@ var modelNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}$`)
 // characters. Names reach the CLIs as one argument after --model.
 func ValidModelName(s string) bool { return modelNameRe.MatchString(s) }
 
+var reservedTagRe = regexp.MustCompile(`(?i)<(\s*/?\s*)(user|assistant|tool_call|tool_result|instructions)\b`)
+
+// EscapeTags neutralizes the tags that give a prompt its structure (<user>,
+// <assistant>, <tool_call>, <tool_result>, <instructions>) inside text that
+// came from a client, so message content cannot close its own element and
+// add a fake turn. Nothing else is changed.
+func EscapeTags(s string) string { return reservedTagRe.ReplaceAllString(s, "&lt;${1}${2}") }
+
 // MaxLineBytes caps one line of CLI output.
 const MaxLineBytes = 32 << 20
 

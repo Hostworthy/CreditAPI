@@ -41,6 +41,7 @@ type Server struct {
 // first-run migration from the single-subscription layout), the MCP bridge
 // for client tools, the Claude and Cursor backends and all HTTP routes.
 func New(cfg *config.Config, version string) (*Server, error) {
+	logging.RegisterSecret(cfg.AdminPassword)
 	workDir := filepath.Join(cfg.DataDir, "workspace")
 	for _, d := range []string{cfg.DataDir, workDir} {
 		if err := os.MkdirAll(d, 0o700); err != nil {

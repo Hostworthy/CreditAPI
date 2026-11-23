@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -182,6 +183,8 @@ func extension(mediaType string) string {
 	return ".jpg"
 }
 
+var closeInstructionsRe = regexp.MustCompile(`(?i)<(\s*/\s*instructions)`)
+
 // buildPrompt renders instructions and the conversation as one prompt. Images
 // are written to ./attachments and referenced by path. Prompts too long for a
 // command-line argument are written to ./conversation.md.
@@ -191,7 +194,11 @@ func buildPrompt(ws string, opts agent.RunOptions) (string, error) {
 	for _, blk := range opts.Content {
 		switch blk.Type {
 		case "text":
-			conv.WriteString(blk.Text)
+			if opts.Transcript {
+				conv.WriteString(blk.Text) // already escaped by the transcript builder
+			} else {
+				conv.WriteString(agent.EscapeTags(blk.Text))
+			}
 		case "image":
 			if blk.Source == nil {
 				continue
@@ -219,7 +226,9 @@ func buildPrompt(ws string, opts agent.RunOptions) (string, error) {
 
 	var p strings.Builder
 	p.WriteString("<instructions>\n")
-	p.WriteString(strings.TrimSpace(opts.SystemPrompt))
+	// The instructions may mention tags; only a closing </instructions>
+	// could break the structure, so only that is neutralized.
+	p.WriteString(closeInstructionsRe.ReplaceAllString(strings.TrimSpace(opts.SystemPrompt), "&lt;$1"))
 	p.WriteString("\n</instructions>\n\n")
 	p.WriteString("You are answering a chat request through an API. Reply to the user directly. Do not create, edit or run anything.")
 	if len(opts.Tools) > 0 {

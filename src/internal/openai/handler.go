@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -181,7 +182,8 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &re) {
 			writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_messages", err.Error())
 		} else {
-			writeError(w, http.StatusInternalServerError, "api_error", "internal_error", err.Error())
+			logging.From(r.Context()).Error(logging.Event("chat", "convert", "failed"), logging.Err(err))
+			writeError(w, http.StatusInternalServerError, "api_error", "internal_error", "internal server error; the server log has the details")
 		}
 		return
 	}
@@ -545,6 +547,7 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, a *attempt,
 		// still gets an error event so the app knows what happened.
 		if ctx.Err() == nil || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			_, typ, code, msg := describeError(err, loginURL)
+			msg = h.clean(msg)
 			sse.data(ErrorBody{Error: ErrorDetail{Message: msg, Type: typ, Code: &code}})
 			sse.raw("data: [DONE]\n\n")
 		}
@@ -615,7 +618,18 @@ func describeError(err error, loginURL string) (status int, typ, code, msg strin
 	if errors.Is(err, context.DeadlineExceeded) {
 		return http.StatusGatewayTimeout, "api_error", "timeout", "request timed out (REQUEST_TIMEOUT)"
 	}
-	return http.StatusInternalServerError, "api_error", "internal_error", err.Error()
+	return http.StatusInternalServerError, "api_error", "internal_error", "internal server error; the server log has the details"
+}
+
+// clean removes secrets and local paths from a message sent to a client.
+func (h *Handler) clean(msg string) string {
+	msg = logging.RedactString(msg)
+	for path, label := range map[string]string{h.cfg.DataDir: "<data>", os.TempDir(): "<tmp>"} {
+		if path != "" && path != "/" {
+			msg = strings.ReplaceAll(msg, path, label)
+		}
+	}
+	return msg
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error, loginURL string) {
@@ -623,7 +637,7 @@ func (h *Handler) fail(w http.ResponseWriter, err error, loginURL string) {
 		return // client went away
 	}
 	status, typ, code, msg := describeError(err, loginURL)
-	writeError(w, status, typ, code, msg)
+	writeError(w, status, typ, code, h.clean(msg))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

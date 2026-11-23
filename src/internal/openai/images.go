@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"syscall"
@@ -84,11 +85,35 @@ func NewImageProcessor(maxDim int, allowURLs, allowPrivate bool) *ImageProcessor
 	return p
 }
 
+// deniedRanges are the address ranges image downloads must never reach:
+// loopback, private, link-local, multicast, carrier-grade NAT,
+// documentation, benchmarking, reserved and translation ranges.
+var deniedRanges = func() []netip.Prefix {
+	var out []netip.Prefix
+	for _, s := range []string{
+		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+		"172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15",
+		"198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+		"::/128", "::1/128", "64:ff9b::/96", "100::/64", "2001::/32", "2001:db8::/32",
+		"2002::/16", "fc00::/7", "fe80::/10", "ff00::/8",
+	} {
+		out = append(out, netip.MustParsePrefix(s))
+	}
+	return out
+}()
+
 func isPublicIP(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() ||
-		// carrier-grade NAT 100.64.0.0/10
-		(ip.To4() != nil && ip.To4()[0] == 100 && ip.To4()[1]&0xc0 == 64))
+	a, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	a = a.Unmap()
+	for _, p := range deniedRanges {
+		if p.Contains(a) {
+			return false
+		}
+	}
+	return true
 }
 
 // Load converts one image reference into a Claude image block.

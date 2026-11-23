@@ -340,7 +340,7 @@ func (m *LoginManager) Status(subscription string) LoginStatus {
 	}
 	st := LoginStatus{Subscription: subscription, State: m.state, NeedsCode: m.spec.NeedsCode, URL: m.url, Error: m.errMsg}
 	if m.state != LoginIdle {
-		out := TidyOutput(string(m.output))
+		out := logging.RedactString(TidyOutput(string(m.output)))
 		if m.spec.Redact != nil {
 			out = m.spec.Redact(out)
 		}
