@@ -66,7 +66,8 @@ curl https://your-server/v1/chat/completions \
 
 Images: the longest side is scaled to `IMAGE_MAX_DIMENSION` (1568 px) and EXIF
 rotation is applied, so phone photos arrive upright and small. HEIC/AVIF are
-rejected with a hint to send JPEG. Only the newest `MAX_IMAGES` images of a
+rejected with a hint to send JPEG. Images with more than `IMAGE_MAX_PIXELS`
+pixels are refused with `400 invalid_messages`. Only the newest `MAX_IMAGES` images of a
 conversation are sent; older ones become `[earlier image omitted]`.
 
 ### Models and Subscriptions

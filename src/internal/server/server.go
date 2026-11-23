@@ -172,6 +172,9 @@ func (s *Server) Run(ctx context.Context) error {
 	if signedIn == 0 {
 		slog.Warn(logging.Event("config", "credential", "missing"), slog.String("hint", "open /login in a browser to sign in"))
 	}
+	if len(cfg.AdminPassword) < 12 {
+		slog.Warn(logging.Event("config", "admin-password", "short"), slog.String("hint", "use at least 12 characters for ADMIN_PASSWORD"))
+	}
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		slog.Warn(logging.Event("config", "api-key", "ignored"), slog.String("hint", "ANTHROPIC_API_KEY is not passed to the claude CLI; requests use the subscriptions"))
 	}

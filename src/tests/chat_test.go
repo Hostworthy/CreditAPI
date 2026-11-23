@@ -444,3 +444,15 @@ func TestConcurrencyLimit(t *testing.T) {
 		t.Fatalf("slow request: %d", code)
 	}
 }
+
+func TestStreamingTimeoutSendsError(t *testing.T) {
+	s, key := signedIn(t, support.Options{RequestTimeout: 300 * time.Millisecond})
+	_, events, done := s.Stream(key, map[string]any{"messages": user("[fake:slow]")})
+	if !done || len(events) == 0 {
+		t.Fatalf("stream should end with [DONE]: done=%v events=%d", done, len(events))
+	}
+	e, ok := events[len(events)-1]["error"].(map[string]any)
+	if !ok || e["code"] != "timeout" {
+		t.Fatalf("last event should be a timeout error: %v", events[len(events)-1])
+	}
+}

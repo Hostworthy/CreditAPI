@@ -68,6 +68,7 @@ with its own `HOME` under `$DATA_DIR/subscriptions/<id>/home`.
 | Variable                   | Default | Description                                                    |
 | -------------------------- | ------- | -------------------------------------------------------------- |
 | `IMAGE_MAX_DIMENSION`      | `1568`  | Longest side in pixels; `0` disables resizing.                 |
+| `IMAGE_MAX_PIXELS`         | `40000000` | Images with more pixels (width x height) are refused before decoding, so a tiny file cannot claim a huge canvas. |
 | `MAX_IMAGES`               | `20`    | Only the newest N images of a conversation are sent.           |
 | `ALLOW_IMAGE_URLS`         | `true`  | Download `http(s)` image links.                                |
 | `ALLOW_PRIVATE_IMAGE_URLS` | `false` | Also allow links to private, loopback and link-local addresses. |

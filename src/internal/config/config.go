@@ -43,6 +43,7 @@ type Config struct {
 	RequestTimeout      time.Duration
 
 	ImageMaxDimension     int
+	ImageMaxPixels        int64
 	MaxImages             int
 	AllowImageURLs        bool
 	AllowPrivateImageURLs bool
@@ -58,10 +59,14 @@ var OwnEnvVars = []string{
 	"CLAUDE_BIN", "DEFAULT_MODEL", "MODELS", "CURSOR_BIN", "CURSOR_MODELS", "CURSOR_DEFAULT_MODEL",
 	"MODEL_ALIASES", "STRICT_MODELS", "DEFAULT_EFFORT",
 	"DEFAULT_SYSTEM_PROMPT", "MAX_CONCURRENT", "QUEUE_TIMEOUT", "REQUEST_TIMEOUT",
-	"IMAGE_MAX_DIMENSION", "MAX_IMAGES", "ALLOW_IMAGE_URLS",
+	"IMAGE_MAX_DIMENSION", "IMAGE_MAX_PIXELS", "MAX_IMAGES", "ALLOW_IMAGE_URLS",
 	"ALLOW_PRIVATE_IMAGE_URLS", "MAX_BODY_MB", "LOG_LEVEL",
 	"CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY", "ANTHROPIC_API_KEY",
 }
+
+// ExamplePassword is the placeholder ADMIN_PASSWORD in .env.example. It is
+// public, so the server refuses to start with it.
+const ExamplePassword = "change-me-to-something-long"
 
 // Load reads the configuration from the environment.
 func Load() (*Config, error) {
@@ -91,6 +96,11 @@ func Load() (*Config, error) {
 	if c.ImageMaxDimension, err = envInt("IMAGE_MAX_DIMENSION", 1568); err != nil {
 		return nil, err
 	}
+	maxPixels, err := envInt("IMAGE_MAX_PIXELS", 40_000_000)
+	if err != nil {
+		return nil, err
+	}
+	c.ImageMaxPixels = int64(maxPixels)
 	if c.MaxImages, err = envInt("MAX_IMAGES", 20); err != nil {
 		return nil, err
 	}
@@ -114,6 +124,9 @@ func Load() (*Config, error) {
 	}
 	if len(c.AdminPassword) < 8 {
 		return nil, errors.New("ADMIN_PASSWORD must be at least 8 characters")
+	}
+	if strings.EqualFold(strings.TrimSpace(c.AdminPassword), ExamplePassword) {
+		return nil, errors.New("ADMIN_PASSWORD is still the example value from .env.example; choose your own")
 	}
 	if p, perr := strconv.Atoi(c.Port); perr != nil || p < 1 || p > 65535 {
 		return nil, fmt.Errorf("PORT must be a number between 1 and 65535 (got %q)", c.Port)

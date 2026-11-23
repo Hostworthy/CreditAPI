@@ -105,6 +105,25 @@ func TestLoadValidation(t *testing.T) {
 	}
 }
 
+func TestExamplePasswordIsRefused(t *testing.T) {
+	setEnv(t, map[string]string{"ADMIN_PASSWORD": "Change-Me-To-Something-Long", "DATA_DIR": t.TempDir()})
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "example value") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestImageMaxPixels(t *testing.T) {
+	setEnv(t, map[string]string{"ADMIN_PASSWORD": "long-enough", "DATA_DIR": t.TempDir()})
+	c, err := Load()
+	if err != nil || c.ImageMaxPixels != 40_000_000 {
+		t.Fatalf("default %d %v", c.ImageMaxPixels, err)
+	}
+	t.Setenv("IMAGE_MAX_PIXELS", "1000")
+	if c, _ = Load(); c.ImageMaxPixels != 1000 {
+		t.Fatalf("override %d", c.ImageMaxPixels)
+	}
+}
+
 func TestOwnEnvVarsIncludeCredentials(t *testing.T) {
 	// Credentials are passed per subscription, never inherited by every CLI.
 	for _, k := range []string{"ADMIN_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN", "CURSOR_API_KEY", "ANTHROPIC_API_KEY"} {

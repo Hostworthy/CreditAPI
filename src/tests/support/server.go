@@ -44,6 +44,7 @@ type Options struct {
 	ImageMaxDimension int
 	MaxImages         int
 	MaxBodyBytes      int64
+	RequestTimeout    time.Duration
 }
 
 // TestServer is a running server whose claude and cursor-agent CLIs are the
@@ -74,7 +75,7 @@ func NewServer(t *testing.T, opts Options) *TestServer {
 		CursorDefaultModel: "auto", CursorModels: []string{"auto", "gpt-5", "sonnet-4"},
 		ModelAliases: map[string]string{"gpt-4o": "opus"}, StrictModels: opts.StrictModels,
 		DefaultSystemPrompt: "You are a helpful assistant.", MaxConcurrent: or(opts.MaxConcurrent, 2),
-		QueueTimeout: orDur(opts.QueueTimeout, 5*time.Second), RequestTimeout: 30 * time.Second,
+		QueueTimeout: orDur(opts.QueueTimeout, 5*time.Second), RequestTimeout: orDur(opts.RequestTimeout, 30*time.Second),
 		ImageMaxDimension: or(opts.ImageMaxDimension, 1568), MaxImages: or(opts.MaxImages, 20),
 		AllowImageURLs: true, MaxBodyBytes: orInt64(opts.MaxBodyBytes, 10<<20), LogLevel: "error",
 	}

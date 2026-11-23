@@ -32,12 +32,16 @@ type Handler struct {
 
 // NewHandler wires the handler.
 func NewHandler(cfg *config.Config, ks *keys.Store, subs *subscriptions.Manager, slots *agent.Slots) *Handler {
+	images := NewImageProcessor(cfg.ImageMaxDimension, cfg.AllowImageURLs, cfg.AllowPrivateImageURLs)
+	if cfg.ImageMaxPixels > 0 {
+		images.MaxPixels = cfg.ImageMaxPixels
+	}
 	return &Handler{
 		cfg:    cfg,
 		keys:   ks,
 		subs:   subs,
 		slots:  slots,
-		images: NewImageProcessor(cfg.ImageMaxDimension, cfg.AllowImageURLs, cfg.AllowPrivateImageURLs),
+		images: images,
 	}
 }
 
@@ -523,7 +527,9 @@ func (h *Handler) stream(ctx context.Context, w http.ResponseWriter, a *attempt,
 	}
 	res, _, err := h.runWithStops(ctx, a, cb, onText)
 	if err != nil {
-		if ctx.Err() == nil {
+		// Stay silent only when the client went away; a REQUEST_TIMEOUT
+		// still gets an error event so the app knows what happened.
+		if ctx.Err() == nil || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			_, typ, code, msg := describeError(err, loginURL)
 			sse.data(ErrorBody{Error: ErrorDetail{Message: msg, Type: typ, Code: &code}})
 			sse.raw("data: [DONE]\n\n")

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -673,5 +675,58 @@ func TestEffortMapping(t *testing.T) {
 		if got := effortFor(in, "dflt"); got != want {
 			t.Errorf("effortFor(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestImagePixelLimit(t *testing.T) {
+	// A blank 8000x8000 PNG is a few KB but would need 256 MB to decode.
+	img := image.NewPaletted(image.Rect(0, 0, 8000, 8000), color.Palette{color.White, color.Black})
+	var buf bytes.Buffer
+	if err := (&png.Encoder{CompressionLevel: png.BestCompression}).Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	img = nil
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, _, err := NewImageProcessor(1568, false, false).normalize(buf.Bytes())
+	runtime.ReadMemStats(&after)
+	if err == nil || !strings.Contains(err.Error(), "IMAGE_MAX_PIXELS") {
+		t.Fatalf("expected the pixel limit, got %v", err)
+	}
+	if grew := (after.TotalAlloc - before.TotalAlloc) >> 20; grew > 50 {
+		t.Fatalf("allocated %d MB before refusing the image", grew)
+	}
+	p := NewImageProcessor(0, false, false)
+	p.MaxPixels = 0 // no limit
+	small, _, err := p.normalize(mustPNG(t, 3, 2))
+	if err != nil || len(small) == 0 {
+		t.Fatalf("unlimited: %v", err)
+	}
+}
+
+func mustPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestImageDecodeRespectsContext(t *testing.T) {
+	for i := 0; i < cap(decodeSlots); i++ {
+		decodeSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(decodeSlots); i++ {
+			<-decodeSlots
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	ref := "data:image/png;base64," + base64.StdEncoding.EncodeToString(mustPNG(t, 2, 2))
+	if _, err := NewImageProcessor(0, false, false).Load(ctx, ref); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected the context error while all decode slots are busy, got %v", err)
 	}
 }
