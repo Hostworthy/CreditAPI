@@ -23,7 +23,7 @@ import (
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // register decoder
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/claude"
 )
 
 const (
@@ -119,7 +119,7 @@ func (p *ImageProcessor) fetch(ctx context.Context, ref string) ([]byte, error) 
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("User-Agent", "claude-max-to-api")
+		req.Header.Set("User-Agent", "creditapi")
 		resp, err := p.client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("download image: %w", err)

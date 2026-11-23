@@ -45,7 +45,7 @@ func TestSchema(t *testing.T) {
 			t.Errorf("missing %q in %v", key, l)
 		}
 	}
-	if l["level"] != "info" || l["service"] != Service || l["message"] != "claude-max-to-api.server.start.succeeded" {
+	if l["level"] != "info" || l["service"] != Service || l["message"] != "creditapi.server.start.succeeded" {
 		t.Fatalf("line %v", l)
 	}
 	if _, ok := l["msg"]; ok {
@@ -73,12 +73,12 @@ func TestRedaction(t *testing.T) {
 		slog.String("token", "sk-ant-oat01-abcdefghijklmnop"),
 		slog.String("Authorization", "Bearer x"),
 		slog.String("prompt", "my private meal log"),
-		slog.String("note", "key sk-cmta-ABCDEFGHIJKL leaked and sk-ant-api03-zzzzzzzzzzzz too"),
+		slog.String("note", "key sk-credit-ABCDEFGHIJKL leaked and sk-ant-api03-zzzzzzzzzzzz too, legacy sk-cmta-ABCDEFGHIJKL"),
 		slog.Any("error", errors.New("bad token sk-ant-oat01-qqqqqqqqqqqqqqqq")),
 		slog.Group("req", slog.String("code", "abc#def"), slog.Int("n", 3)),
 	)
 	out := buf.String()
-	for _, secret := range []string{"sk-ant-oat01-abcdefghijklmnop", "Bearer x", "my private meal log", "sk-cmta-ABCDEFGHIJKL", "sk-ant-api03-zzzzzzzzzzzz", "sk-ant-oat01-qqqqqqqqqqqqqqqq", "abc#def"} {
+	for _, secret := range []string{"sk-ant-oat01-abcdefghijklmnop", "Bearer x", "my private meal log", "sk-credit-ABCDEFGHIJKL", "sk-cmta-ABCDEFGHIJKL", "sk-ant-api03-zzzzzzzzzzzz", "sk-ant-oat01-qqqqqqqqqqqqqqqq", "abc#def"} {
 		if strings.Contains(out, secret) {
 			t.Errorf("secret %q leaked: %s", secret, out)
 		}
@@ -91,8 +91,8 @@ func TestRedaction(t *testing.T) {
 func TestWithAttrsRedacts(t *testing.T) {
 	var buf bytes.Buffer
 	log, _ := NewWithWriter(&buf, "info")
-	log.With(slog.String("api_key", "sk-cmta-123456789")).Info(Event("a", "b", "c"))
-	if strings.Contains(buf.String(), "sk-cmta-123456789") {
+	log.With(slog.String("api_key", "sk-credit-123456789")).Info(Event("a", "b", "c"))
+	if strings.Contains(buf.String(), "sk-credit-123456789") {
 		t.Fatal("WithAttrs leaked secret")
 	}
 }

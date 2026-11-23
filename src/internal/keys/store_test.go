@@ -16,7 +16,7 @@ func TestStoreLifecycle(t *testing.T) {
 	if _, _, err := s.Create("  "); err == nil {
 		t.Fatal("empty name should fail")
 	}
-	k, secret, err := s.Create("sparky")
+	k, secret, err := s.Create("my-app")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,5 +65,22 @@ func TestStoreLifecycle(t *testing.T) {
 	}
 	if err := s2.Delete(k.ID); err == nil {
 		t.Fatal("double delete should fail")
+	}
+}
+
+func TestLegacyPrefixStillAuthenticates(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "keys.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := LegacyKeyPrefix + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefg"
+	k := &Key{ID: "legacy01", Name: "old", Hash: hashKey(legacy)}
+	s.keys[k.ID] = k
+	s.byHash[k.Hash] = k
+	if got := s.Authenticate(legacy); got == nil || got.ID != "legacy01" {
+		t.Fatal("legacy sk-cmta- key should still authenticate")
+	}
+	if s.Authenticate("sk-other-"+legacy) != nil {
+		t.Fatal("unknown prefix accepted")
 	}
 }

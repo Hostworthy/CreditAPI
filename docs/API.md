@@ -25,10 +25,11 @@ the `/admin` and `/login` pages (and scripts). Setup is in
 Send a virtual key created at `/admin`:
 
 ```http
-Authorization: Bearer sk-cmta-...
+Authorization: Bearer sk-credit-...
 ```
 
-`X-Api-Key: sk-cmta-...` and `Api-Key: sk-cmta-...` work too. Missing,
+`X-Api-Key: sk-credit-...` and `Api-Key: sk-credit-...` work too. Keys created
+before the rename (`sk-cmta-...`) keep working. Missing,
 unknown or disabled keys get `401` with code `invalid_api_key`.
 
 ### Endpoints
@@ -43,7 +44,7 @@ Every path works with and without the `/v1` prefix.
 
 ```bash
 curl https://your-server/v1/chat/completions \
-  -H "Authorization: Bearer sk-cmta-..." -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-credit-..." -H "Content-Type: application/json" \
   -d '{"model":"sonnet","messages":[{"role":"user","content":"Hi!"}]}'
 ```
 
@@ -136,7 +137,7 @@ address is locked out (`429`).
 
 | Method   | Path                              | Body                         | Description                                                  |
 | -------- | --------------------------------- | ---------------------------- | ------------------------------------------------------------ |
-| `POST`   | `/admin/api/session`              | `{"password"}`               | Sign in; sets the `cmta_admin` cookie (7 days)               |
+| `POST`   | `/admin/api/session`              | `{"password"}`               | Sign in; sets the `creditapi_admin` cookie (7 days)               |
 | `DELETE` | `/admin/api/session`              |                              | Sign out                                                     |
 | `GET`    | `/admin/api/me`                   |                              | `{"authenticated": bool}`                                    |
 | `GET`    | `/admin/api/keys`                 |                              | List keys with usage counters (never secrets or hashes)      |
@@ -163,7 +164,7 @@ the page again resumes it rather than creating a new link.
 ```bash
 curl -X POST https://your-server/admin/api/keys \
   -H "Authorization: Bearer $ADMIN_PASSWORD" -H "Content-Type: application/json" \
-  -d '{"name":"sparkyfitness"}'
+  -d '{"name":"my-app"}'
 ```
 
 ## Health

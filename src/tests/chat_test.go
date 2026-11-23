@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/tests/support"
+	"github.com/atb00ker/CreditAPI/src/tests/support"
 )
 
 // signedIn returns a server with a completed fake login and an API key.
@@ -64,11 +64,11 @@ func TestSystemPromptAndTranscript(t *testing.T) {
 	}
 
 	_, out = s.Chat(key, map[string]any{"messages": []map[string]any{
-		{"role": "system", "content": "You are Sparky."},
+		{"role": "system", "content": "You are a nutrition assistant."},
 		{"role": "developer", "content": "Be brief."},
 		{"role": "user", "content": "[fake:echo-system]"},
 	}})
-	if support.Content(out) != "You are Sparky.\n\nBe brief." {
+	if support.Content(out) != "You are a nutrition assistant.\n\nBe brief." {
 		t.Fatalf("joined system prompt: %q", support.Content(out))
 	}
 

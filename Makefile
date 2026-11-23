@@ -11,7 +11,7 @@ help:
 	@echo "  upgrade      Upgrade module dependencies to latest"
 	@echo "  dev          Run the API server against the real claude CLI (.env)"
 	@echo "  kill         Kill the API server (PORT from .env)"
-	@echo "  build        Build bin/claude-max-to-api"
+	@echo "  build        Build bin/creditapi"
 	@echo "  fake         Build bin/fakeclaude (fake Claude CLI for tests and Bruno)"
 	@echo "  test         Run Go unit and integration tests"
 	@echo "  check        tidy, format, vet, and test"
@@ -34,13 +34,13 @@ upgrade:
 	go mod tidy
 
 dev: install kill
-	go run ./src/cmd/claude-max-to-api
+	go run ./src/cmd/creditapi
 
 kill:
 	fuser -k $(or $(PORT),8080)/tcp 2>/dev/null || true
 
 build:
-	go build -o bin/claude-max-to-api ./src/cmd/claude-max-to-api
+	go build -o bin/creditapi ./src/cmd/creditapi
 
 fake:
 	go build -o bin/fakeclaude ./src/cmd/fakeclaude
@@ -62,7 +62,7 @@ ci:
 e2e: fake
 	@test -f .env.bruno || (echo 'copy .env.bruno.example to .env.bruno' >&2; exit 1)
 	rm -rf ./data/bruno
-	ENV_CLAUDE_MAX_TO_API=$(abspath .env.bruno) go run ./src/cmd/claude-max-to-api
+	ENV_CREDITAPI=$(abspath .env.bruno) go run ./src/cmd/creditapi
 
 bruno:
 	cd bruno && $(BRU) run --env local
@@ -71,7 +71,7 @@ e2e-ci:
 	BRU="$(BRU)" ./scripts/e2e.sh
 
 docker:
-	docker build -t claude-max-to-api .
+	docker build -t creditapi .
 
 clean:
 	rm -rf bin/ data/bruno/ bruno/results/

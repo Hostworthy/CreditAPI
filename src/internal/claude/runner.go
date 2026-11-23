@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 // ContentBlock is an Anthropic Messages API content block (text or image).
@@ -242,7 +242,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions, cb Callbacks) (*Resul
 }
 
 func (r *Runner) run(ctx context.Context, opts RunOptions, cb Callbacks) (*Result, error) {
-	tmp, err := os.MkdirTemp("", "cmta-run-")
+	tmp, err := os.MkdirTemp("", "creditapi-run-")
 	if err != nil {
 		return nil, err
 	}

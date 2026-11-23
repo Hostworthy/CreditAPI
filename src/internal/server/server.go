@@ -12,15 +12,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/admin"
-	"github.com/atb00ker/claude-max-to-api/src/internal/claude"
-	"github.com/atb00ker/claude-max-to-api/src/internal/config"
-	"github.com/atb00ker/claude-max-to-api/src/internal/keys"
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
-	"github.com/atb00ker/claude-max-to-api/src/internal/openai"
+	"github.com/atb00ker/CreditAPI/src/internal/admin"
+	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/openai"
 )
 
-// Server is a fully wired claude-max-to-api instance.
+// Server is a fully wired CreditAPI instance.
 type Server struct {
 	Config  *config.Config
 	Version string

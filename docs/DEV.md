@@ -1,6 +1,6 @@
 # Developer Documentation
 
-Developer documentation for claude-max-to-api. For a product overview, see
+Developer documentation for CreditAPI. For a product overview, see
 [README.md](../README.md); to run it, see [SETUP.md](SETUP.md).
 
 ## Prerequisites
@@ -15,8 +15,8 @@ Developer documentation for claude-max-to-api. For a product overview, see
 ## Quick Start
 
 ```bash
-git clone git@github.com:atb00ker/claude-max-to-api.git
-cd claude-max-to-api
+git clone git@github.com:atb00ker/CreditAPI.git
+cd CreditAPI
 cp .env.example .env          # set ADMIN_PASSWORD
 make install
 make check                    # tidy, format, vet, unit + integration tests
@@ -48,7 +48,7 @@ Sign in at `/login` with a code that starts with `fake-code` (for example
 | `make upgrade`   | Upgrade modules to latest                                              |
 | `make dev`       | Run the server against the real `claude` CLI (`.env`)                 |
 | `make kill`      | Kill the server listening on `PORT`                                    |
-| `make build`     | Build `bin/claude-max-to-api`                                          |
+| `make build`     | Build `bin/creditapi`                                          |
 | `make fake`      | Build `bin/fakeclaude`, the fake Claude CLI                            |
 | `make test`      | Go unit and integration tests                                          |
 | `make check`     | tidy, format, vet and test                                             |
@@ -64,7 +64,7 @@ Sign in at `/login` with a code that starts with `fake-code` (for example
 ```text
 src/
   cmd/
-    claude-max-to-api/   # server entrypoint (also `version` and `healthcheck`)
+    creditapi/           # server entrypoint (also `version` and `healthcheck`)
     fakeclaude/          # fake Claude CLI binary for local end-to-end testing
   internal/
     admin/               # /admin and /login pages, session cookie, admin API
@@ -96,11 +96,11 @@ All settings are environment variables, documented in
 The server loads `.env` from the working directory (variables already set in
 the shell win). Two overrides, the same as in goauth:
 
-- **Alternate entry:** `export ENV_CLAUDE_MAX_TO_API=/path/to/file.env` in the shell.
+- **Alternate entry:** `export ENV_CREDITAPI=/path/to/file.env` in the shell.
 - **Chaining:** `ENV_PATH=secrets.env` inside an env file loads another file
   (relative to the current one, up to 10 hops, merged additively).
 
-`make e2e` uses `ENV_CLAUDE_MAX_TO_API=.env.bruno`.
+`make e2e` uses `ENV_CREDITAPI=.env.bruno`.
 
 ## How It Works
 
@@ -193,7 +193,7 @@ In **auto** mode (the default) it answers deterministically from its input:
 Prompt directives: `[fake:rate-limit]`, `[fake:overloaded]`,
 `[fake:bad-request]`, `[fake:crash]`, `[fake:slow]` (one word every 150 ms),
 `[fake:echo-system]`, `[fake:echo-input]` and `[fake:long]`. Scripted scenarios
-(`CMTA_FAKE_CLAUDE=text|slow|tools|schema|auth|crash`) give fixed output for unit
+(`CREDITAPI_FAKE_CLAUDE=text|slow|tools|schema|auth|crash`) give fixed output for unit
 tests that assert exact values.
 
 ### Go Tests
@@ -211,7 +211,7 @@ make test       # or make ci for the race detector and format check
 ### Bruno
 
 The [`bruno/`](../bruno) collection exercises the running server over HTTP the
-way SparkyFitness does, in order: setup and reset, admin session, virtual keys,
+way an OpenAI-compatible app does, in order: setup and reset, admin session, virtual keys,
 login required, the fake Claude sign-in, chat, tools, structured output, errors,
 web pages and cleanup.
 
@@ -230,19 +230,19 @@ uploads them. When you change the API, update the matching `.bru` files.
 Logs are JSON lines on stdout. `LOG_LEVEL` is `debug`, `info` (default), `warn`
 or `error`. A redacting handler drops sensitive attributes (`token`, `api_key`,
 `authorization`, `code`, `prompt`, `content`, ...) and masks `sk-ant-...` and
-`sk-cmta-...` strings anywhere. Never log tokens, keys, the admin password,
+`sk-credit-...` (and legacy `sk-cmta-...`) strings anywhere. Never log tokens, keys, the admin password,
 sign-in codes, prompts or responses.
 
 `message` is a stable event ID, not a sentence:
-`claude-max-to-api.<operation>.<action>.<status>`, with hyphens joining words
+`creditapi.<operation>.<action>.<status>`, with hyphens joining words
 (`login.setup-token.started`). Details go in extra fields. HTTP access lines use
-`claude-max-to-api.http.request.completed`; health checks and assets log at `debug`.
+`creditapi.http.request.completed`; health checks and assets log at `debug`.
 
 | Field                                     | Description                                             |
 | ----------------------------------------- | ------------------------------------------------------- |
 | `timestamp`                               | ISO-8601 UTC                                            |
 | `level`                                   | `debug`, `info`, `warn` or `error`                      |
-| `service`                                 | `claude-max-to-api`                                     |
+| `service`                                 | `creditapi`                                             |
 | `message`                                 | Event ID `^[a-z0-9-]+(\.[a-z0-9-]+){2,4}$`              |
 | `request_id`                              | HTTP only; echoed in the `X-Request-Id` response header |
 | `method`, `path`, `status`, `duration_ms` | HTTP access logs                                        |
@@ -255,7 +255,7 @@ sign-in codes, prompts or responses.
 | Document                         | Contents                                              |
 | -------------------------------- | ----------------------------------------------------- |
 | [README.md](../README.md)        | What the project is                                    |
-| [SETUP.md](SETUP.md)             | Running it, connecting Claude and SparkyFitness       |
+| [SETUP.md](SETUP.md)             | Running it, connecting Claude and your apps           |
 | [API.md](API.md)                 | OpenAI compatibility, errors, admin API, health       |
 | [ENVIRONMENT.md](ENVIRONMENT.md) | Environment variables and Docker build arguments      |
 | [SECURITY.md](SECURITY.md)       | Security model and recommendations                    |

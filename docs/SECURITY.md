@@ -1,6 +1,6 @@
 # Security
 
-How claude-max-to-api protects your subscription, your keys and your data, and
+How CreditAPI protects your subscription, your keys and your data, and
 what to do when you deploy it. For setup, see [SETUP.md](SETUP.md).
 
 ## What Is Protected
@@ -9,7 +9,7 @@ what to do when you deploy it. For setup, see [SETUP.md](SETUP.md).
 | ------------------------ | ----------------------------------------------- | ----------------------------------------------------------------- |
 | Claude OAuth token       | `DATA_DIR/claude-oauth-token`                   | File mode `0600`; only a redacted hint is ever shown              |
 | Virtual API keys         | `DATA_DIR/keys.json`                            | Only SHA-256 hashes are stored; the secret is shown once          |
-| Admin sessions           | `cmta_admin` cookie                             | HMAC-signed, `HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS, 7 days |
+| Admin sessions           | `creditapi_admin` cookie                             | HMAC-signed, `HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS, 7 days |
 | Session signing secret   | `DATA_DIR/session-secret`                       | Random per installation, mixed with `ADMIN_PASSWORD`; mode `0600` |
 | Prompts, photos, replies | Memory only                                     | Not written to disk or logs; sessions are not persisted by the CLI |
 
@@ -48,7 +48,7 @@ what to do when you deploy it. For setup, see [SETUP.md](SETUP.md).
 
 Logs never contain tokens, keys, the admin password, sign-in codes, prompts or
 responses. A redacting handler drops sensitive fields and masks anything that
-looks like an `sk-ant-` or `sk-cmta-` secret, including inside error messages.
+looks like an `sk-ant-` or `sk-credit-` secret, including inside error messages.
 
 ## Container
 

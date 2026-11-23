@@ -10,14 +10,14 @@ import (
 )
 
 const (
-	envPathVar      = "ENV_CLAUDE_MAX_TO_API"
+	envPathVar      = "ENV_CREDITAPI"
 	envPathKey      = "ENV_PATH"
 	maxEnvPathDepth = 10
 	defaultEnvPath  = ".env"
 )
 
 // LoadDotEnv loads the project .env chain into the process environment.
-// The entry file is shell ENV_CLAUDE_MAX_TO_API when set, otherwise .env
+// The entry file is shell ENV_CREDITAPI when set, otherwise .env
 // (optional). Each file may chain to another via ENV_PATH (up to 10 hops).
 // Variables already set in the process environment win.
 func LoadDotEnv() error {

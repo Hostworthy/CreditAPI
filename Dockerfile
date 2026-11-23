@@ -11,7 +11,7 @@ ARG TARGETARCH
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
-    -o /out/claude-max-to-api ./src/cmd/claude-max-to-api
+    -o /out/creditapi ./src/cmd/creditapi
 
 # --- Claude Code CLI (native binary, checksum verified) -----------------------
 FROM debian:trixie-slim AS claude
@@ -33,7 +33,7 @@ RUN apt-get update \
  && mkdir -p /data \
  && chown app:app /data
 COPY --from=claude /usr/local/bin/claude /usr/local/bin/claude
-COPY --from=build /out/claude-max-to-api /usr/local/bin/claude-max-to-api
+COPY --from=build /out/creditapi /usr/local/bin/creditapi
 
 ENV DATA_DIR=/data \
     HOST=0.0.0.0 \
@@ -45,6 +45,6 @@ WORKDIR /data
 VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["claude-max-to-api", "healthcheck"]
+  CMD ["creditapi", "healthcheck"]
 # tini reaps the claude processes this server starts and stops.
-ENTRYPOINT ["/usr/bin/tini", "--", "claude-max-to-api"]
+ENTRYPOINT ["/usr/bin/tini", "--", "creditapi"]

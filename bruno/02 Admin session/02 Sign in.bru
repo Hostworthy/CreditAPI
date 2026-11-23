@@ -23,7 +23,7 @@ assert {
 tests {
   test("sets a locked-down session cookie", function () {
     const cookie = [].concat(res.headers["set-cookie"]).join(";");
-    expect(cookie).to.contain("cmta_admin=");
+    expect(cookie).to.contain("creditapi_admin=");
     expect(cookie).to.contain("HttpOnly");
     expect(cookie).to.contain("SameSite=Strict");
   });

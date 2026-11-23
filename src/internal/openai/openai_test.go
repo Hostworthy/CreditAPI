@@ -20,10 +20,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/claude"
-	"github.com/atb00ker/claude-max-to-api/src/internal/config"
-	"github.com/atb00ker/claude-max-to-api/src/internal/keys"
-	"github.com/atb00ker/claude-max-to-api/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
 )
 
 func TestMain(m *testing.M) {
@@ -334,7 +334,7 @@ func TestHTTPAuthAndModels(t *testing.T) {
 	if resp.StatusCode != 401 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	resp, _ = doJSON(t, srv, "sk-cmta-wrong", "/v1/chat/completions", map[string]any{})
+	resp, _ = doJSON(t, srv, "sk-credit-wrong", "/v1/chat/completions", map[string]any{})
 	if resp.StatusCode != 401 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}

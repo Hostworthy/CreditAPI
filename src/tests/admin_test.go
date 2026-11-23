@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atb00ker/claude-max-to-api/src/tests/support"
+	"github.com/atb00ker/CreditAPI/src/tests/support"
 )
 
 func TestAPIKeyAuth(t *testing.T) {
@@ -14,7 +14,7 @@ func TestAPIKeyAuth(t *testing.T) {
 
 	for name, headers := range map[string]map[string]string{
 		"missing":   {},
-		"wrong":     {"Authorization": "Bearer sk-cmta-wrong"},
+		"wrong":     {"Authorization": "Bearer sk-credit-wrong"},
 		"not ours":  {"Authorization": "Bearer sk-ant-oat01-something"},
 		"bad shape": {"Authorization": "Basic abc"},
 	} {
@@ -82,7 +82,7 @@ func TestKeyLifecycleAndUsage(t *testing.T) {
 	if _, ok := k["hash"]; ok && k["hash"] != "" {
 		t.Fatal("hash must not be exposed")
 	}
-	if !strings.HasPrefix(k["hint"].(string), "sk-cmta-") || strings.Contains(k["hint"].(string), key[12:]) {
+	if !strings.HasPrefix(k["hint"].(string), "sk-credit-") || strings.Contains(k["hint"].(string), key[12:]) {
 		t.Fatalf("hint %v", k["hint"])
 	}
 	id := k["id"].(string)
@@ -144,15 +144,15 @@ func TestAdminSessionCookie(t *testing.T) {
 		t.Fatalf("sign in: %d", resp.StatusCode)
 	}
 	cookie := resp.Header.Get("Set-Cookie")
-	for _, attr := range []string{"cmta_admin=", "HttpOnly", "SameSite=Strict", "Secure", "Path=/"} {
+	for _, attr := range []string{"creditapi_admin=", "HttpOnly", "SameSite=Strict", "Secure", "Path=/"} {
 		if !strings.Contains(cookie, attr) {
 			t.Errorf("cookie missing %s: %s", attr, cookie)
 		}
 	}
 	// The Secure cookie is not sent over plain http by the jar, so use the
 	// value directly for the next checks.
-	value := strings.SplitN(strings.TrimPrefix(cookie, "cmta_admin="), ";", 2)[0]
-	withCookie := map[string]string{"Cookie": "cmta_admin=" + value}
+	value := strings.SplitN(strings.TrimPrefix(cookie, "creditapi_admin="), ";", 2)[0]
+	withCookie := map[string]string{"Cookie": "creditapi_admin=" + value}
 	if r, _ := s.Do("GET", "/admin/api/keys", nil, withCookie); r.StatusCode != 200 {
 		t.Fatalf("cookie auth: %d", r.StatusCode)
 	}
@@ -160,7 +160,7 @@ func TestAdminSessionCookie(t *testing.T) {
 	if r, _ := s.Do("POST", "/admin/api/keys", map[string]any{"name": "x"}, withCookie); r.StatusCode != 403 {
 		t.Fatalf("cross-origin write: %d", r.StatusCode)
 	}
-	if r, _ := s.Do("GET", "/admin/api/keys", nil, map[string]string{"Cookie": "cmta_admin=1.forged"}); r.StatusCode != 401 {
+	if r, _ := s.Do("GET", "/admin/api/keys", nil, map[string]string{"Cookie": "creditapi_admin=1.forged"}); r.StatusCode != 401 {
 		t.Fatalf("forged cookie: %d", r.StatusCode)
 	}
 }

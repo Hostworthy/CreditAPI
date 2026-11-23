@@ -4,7 +4,7 @@
 // real output) and fakes `claude setup-token`, so the whole server can be
 // exercised without a Claude account or network access.
 //
-// Two modes, picked with CMTA_FAKE_CLAUDE:
+// Two modes, picked with CREDITAPI_FAKE_CLAUDE:
 //
 //   - "auto" (the default for the fakeclaude binary): deterministic replies
 //     driven by the input. See auto.go for the rules and [fake:...] directives.
@@ -30,11 +30,11 @@ import (
 
 // Environment variables understood by the fake.
 const (
-	EnvScenario = "CMTA_FAKE_CLAUDE"
-	EnvRecord   = "CMTA_FAKE_RECORD"
+	EnvScenario = "CREDITAPI_FAKE_CLAUDE"
+	EnvRecord   = "CREDITAPI_FAKE_RECORD"
 )
 
-// Record is what the fake saw; written to CMTA_FAKE_RECORD when set.
+// Record is what the fake saw; written to CREDITAPI_FAKE_RECORD when set.
 type Record struct {
 	Args         []string          `json:"args"`
 	Stdin        json.RawMessage   `json:"stdin"`
@@ -44,7 +44,7 @@ type Record struct {
 	BridgeTools  []string          `json:"bridge_tools"`
 }
 
-// MaybeRun runs the fake and exits when CMTA_FAKE_CLAUDE is set. Call it
+// MaybeRun runs the fake and exits when CREDITAPI_FAKE_CLAUDE is set. Call it
 // first thing in TestMain.
 func MaybeRun() {
 	if os.Getenv(EnvScenario) == "" {

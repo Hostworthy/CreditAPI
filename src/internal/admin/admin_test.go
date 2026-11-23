@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/claude"
-	"github.com/atb00ker/claude-max-to-api/src/internal/config"
-	"github.com/atb00ker/claude-max-to-api/src/internal/keys"
-	"github.com/atb00ker/claude-max-to-api/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
 )
 
 const pw = "correct horse battery"
@@ -96,7 +96,7 @@ func TestSessionAndKeys(t *testing.T) {
 	if _, out := call(t, c, "GET", srv.URL+"/admin/api/me", nil, nil); out["authenticated"] != true {
 		t.Fatalf("me: %v", out)
 	}
-	code, out := call(t, c, "POST", srv.URL+"/admin/api/keys", map[string]string{"name": "sparky"}, nil)
+	code, out := call(t, c, "POST", srv.URL+"/admin/api/keys", map[string]string{"name": "my-app"}, nil)
 	if code != 201 || !strings.HasPrefix(out["secret"].(string), keys.KeyPrefix) {
 		t.Fatalf("create: %d %v", code, out)
 	}

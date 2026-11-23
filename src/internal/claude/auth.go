@@ -16,8 +16,8 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/keys"
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 // TokenStore holds the OAuth token used to run `claude -p`. A token saved via

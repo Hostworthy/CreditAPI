@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/tests/support"
-	"github.com/atb00ker/claude-max-to-api/src/tests/support/fakeclaude"
+	"github.com/atb00ker/CreditAPI/src/tests/support"
+	"github.com/atb00ker/CreditAPI/src/tests/support/fakeclaude"
 )
 
 var hello = map[string]any{"messages": []map[string]any{{"role": "user", "content": "hello"}}}
@@ -25,7 +25,7 @@ func errorOf(t *testing.T, out map[string]any) map[string]any {
 // link, the phone sign-in runs, everything works, the login is removed.
 func TestLoginJourney(t *testing.T) {
 	s := support.NewServer(t, support.Options{PublicURL: "https://claude.example.com"})
-	key := s.CreateKey("sparkyfitness")
+	key := s.CreateKey("my-app")
 
 	resp, out := s.Do("GET", "/healthz", nil, nil)
 	if resp.StatusCode != 200 || out["claude_token"] != false || out["claude_login"] != "unknown" {

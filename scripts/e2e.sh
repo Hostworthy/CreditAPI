@@ -13,13 +13,13 @@ ENV_FILE="${ENV_FILE:-.env.bruno}"
 PORT="$(sed -n 's/^PORT=//p' "$ENV_FILE" | tail -n 1)"
 PORT="${PORT:-18180}"
 
-go build -o bin/claude-max-to-api ./src/cmd/claude-max-to-api
+go build -o bin/creditapi ./src/cmd/creditapi
 go build -o bin/fakeclaude ./src/cmd/fakeclaude
 
 DATA_DIR="$(mktemp -d)"
 LOG="$DATA_DIR/server.log"
-ENV_CLAUDE_MAX_TO_API="$PWD/$ENV_FILE" DATA_DIR="$DATA_DIR/data" PORT="$PORT" \
-  ./bin/claude-max-to-api >"$LOG" 2>&1 &
+ENV_CREDITAPI="$PWD/$ENV_FILE" DATA_DIR="$DATA_DIR/data" PORT="$PORT" \
+  ./bin/creditapi >"$LOG" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
@@ -36,12 +36,12 @@ cleanup() {
 trap cleanup EXIT
 
 for _ in $(seq 1 50); do
-  if PORT="$PORT" ./bin/claude-max-to-api healthcheck 2>/dev/null; then
+  if PORT="$PORT" ./bin/creditapi healthcheck 2>/dev/null; then
     break
   fi
   sleep 0.2
 done
-PORT="$PORT" ./bin/claude-max-to-api healthcheck
+PORT="$PORT" ./bin/creditapi healthcheck
 
 mkdir -p bruno/results
 cd bruno

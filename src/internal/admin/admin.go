@@ -25,17 +25,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atb00ker/claude-max-to-api/src/internal/claude"
-	"github.com/atb00ker/claude-max-to-api/src/internal/config"
-	"github.com/atb00ker/claude-max-to-api/src/internal/keys"
-	"github.com/atb00ker/claude-max-to-api/src/internal/logging"
+	"github.com/atb00ker/CreditAPI/src/internal/claude"
+	"github.com/atb00ker/CreditAPI/src/internal/config"
+	"github.com/atb00ker/CreditAPI/src/internal/keys"
+	"github.com/atb00ker/CreditAPI/src/internal/logging"
 )
 
 //go:embed web
 var webFS embed.FS
 
 const (
-	cookieName = "cmta_admin"
+	cookieName = "creditapi_admin"
 	sessionTTL = 7 * 24 * time.Hour
 )
 

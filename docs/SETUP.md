@@ -1,7 +1,7 @@
 # Setup
 
-How to run claude-max-to-api, connect your Claude subscription and use it from
-SparkyFitness or any other OpenAI-compatible app. For a short overview, see
+How to run CreditAPI, connect your Claude subscription and use it from any
+OpenAI-compatible app. For a short overview, see
 [README.md](../README.md); for development, see [DEV.md](DEV.md).
 
 ## Requirements
@@ -14,8 +14,8 @@ SparkyFitness or any other OpenAI-compatible app. For a short overview, see
 ## Install
 
 ```bash
-git clone https://github.com/atb00ker/claude-max-to-api
-cd claude-max-to-api
+git clone https://github.com/atb00ker/CreditAPI
+cd CreditAPI
 cp .env.example .env
 ```
 
@@ -34,7 +34,7 @@ docker compose logs -f
 ```
 
 The server listens on port 8080. All state (API keys, the saved Claude login,
-CLI files) lives in the `claude-data` volume. Every setting is described in
+CLI files) lives in the `creditapi-data` volume. Every setting is described in
 [ENVIRONMENT.md](ENVIRONMENT.md).
 
 ## Connect Your Claude Subscription
@@ -62,38 +62,33 @@ on `/login`, or set `CLAUDE_CODE_OAUTH_TOKEN` in `.env`. A login done on
 
 ## Create an API Key
 
-Open `/admin`, enter a name (for example `sparkyfitness`) and select **Create
-key**. Copy the `sk-cmta-...` key right away; it is shown only once. Give every
+Open `/admin`, enter a name (for example `my-app`) and select **Create
+key**. Copy the `sk-credit-...` key right away; it is shown only once. Give every
 app its own key so you can see its usage and revoke it on its own.
 
-## Connect SparkyFitness
+## Connect an App
 
-In SparkyFitness open the AI settings and add a service:
+Any app or library that supports OpenAI, or an "OpenAI compatible" provider,
+can use CreditAPI. In its AI settings use:
 
-| Field            | Value                                                  |
-| ---------------- | ------------------------------------------------------ |
-| Service type     | OpenAI Compatible                                      |
-| Base URL         | `http://claude-max-to-api:8080/v1` (must end in `/v1`) |
-| API key          | the key from `/admin`                                  |
-| Use custom model | on, model `sonnet` (or `opus`, `haiku`)                |
+| Setting  | Value                                                              |
+| -------- | ------------------------------------------------------------------ |
+| Base URL | `https://your-server/v1` (some apps want it without `/v1`; both work) |
+| API key  | the key from `/admin`                                              |
+| Model    | `sonnet`, `opus` or `haiku` (unknown names use `DEFAULT_MODEL`)    |
 
-Select the same service for **Vision** so food photos and nutrition labels work.
+If the app supports image input, enable it for the same provider so photos
+work. Apps that run in Docker on the same host can reach CreditAPI by container
+name: put both on one network (uncomment the `networks` block in
+`docker-compose.yml`) and use `http://creditapi:8080/v1`. Some apps block
+private or LAN addresses until you allow them in their settings.
 
-If both apps run in Docker, put them on the same network so SparkyFitness can
-reach the container by name. Uncomment the `networks` block in
-`docker-compose.yml` and set the name of SparkyFitness's network. SparkyFitness
-only allows AI URLs on private addresses for admins, or when
-`ALLOW_PRIVATE_NETWORK_AI=true` is set on SparkyFitness.
-
-## Other Apps
-
-Any OpenAI client works. Use the base URL `https://your-server/v1` and a key
-from `/admin`:
+From code, use any OpenAI client:
 
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="https://your-server/v1", api_key="sk-cmta-...")
+client = OpenAI(base_url="https://your-server/v1", api_key="sk-credit-...")
 reply = client.chat.completions.create(
     model="sonnet",
     messages=[{"role": "user", "content": "How much protein is in 200 g of Greek yogurt?"}],
@@ -103,13 +98,12 @@ print(reply.choices[0].message.content)
 
 ```bash
 curl https://your-server/v1/chat/completions \
-  -H "Authorization: Bearer sk-cmta-..." -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-credit-..." -H "Content-Type: application/json" \
   -d '{"model":"haiku","messages":[{"role":"user","content":"Hi!"}]}'
 ```
 
-`opus`, `sonnet` and `haiku` always mean the newest model of each family.
-Unknown names such as `gpt-4o` use `DEFAULT_MODEL`. What is supported is listed
-in [API.md](API.md).
+`opus`, `sonnet` and `haiku` always mean the newest model of each family. What
+is supported is listed in [API.md](API.md).
 
 ## When the Login Expires
 
@@ -140,7 +134,7 @@ Put the server behind HTTPS before exposing it to the internet. With Caddy:
 
 ```text
 claude.example.com {
-  reverse_proxy claude-max-to-api:8080
+  reverse_proxy creditapi:8080
 }
 ```
 
@@ -179,7 +173,7 @@ time for the `claude` process.
 | `429 rate_limit_exceeded`                 | Your subscription's usage limit is reached; `/admin` shows when it resets. |
 | `429 server_busy`                         | All slots are busy; raise `MAX_CONCURRENT` if you have the memory.         |
 | No **Paste** button on `/login`           | The page is not on HTTPS; paste into the box instead.                      |
-| SparkyFitness says the URL is not allowed | Set `ALLOW_PRIVATE_NETWORK_AI=true` on SparkyFitness or configure it as an admin. |
+| The app refuses a private or LAN URL      | Many apps block private addresses by default; allow them in the app's settings. |
 | Photos fail with HEIC or AVIF errors      | Send JPEG; most phones can share photos as JPEG.                           |
 
 Logs are JSON lines on stdout (`docker compose logs`); each request carries a

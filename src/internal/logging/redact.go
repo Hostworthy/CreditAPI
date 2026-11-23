@@ -10,8 +10,9 @@ import (
 const redacted = "[REDACTED]"
 
 // secretPattern matches Claude OAuth tokens, Anthropic API keys and this
-// server's virtual keys wherever they appear inside a string.
-var secretPattern = regexp.MustCompile(`sk-(?:ant|cmta)-[A-Za-z0-9_\-]{8,}`)
+// server's virtual keys (current and legacy prefix) wherever they appear
+// inside a string.
+var secretPattern = regexp.MustCompile(`sk-(?:ant|credit|cmta)-[A-Za-z0-9_\-]{8,}`)
 
 // sensitiveKeys are attribute keys whose values are never written.
 var sensitiveKeys = map[string]struct{}{
