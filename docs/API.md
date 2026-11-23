@@ -90,6 +90,8 @@ Every request is answered by one of the subscriptions its key may use (see
   subscription the key may not use, or a disabled one, returns `403`.
 - When a subscription is signed out, at its usage limit, overloaded or fails
   before anything was streamed, the next candidate answers.
+  A subscription that hit its usage limit rests for 60 seconds (15 after an
+  overload): it is tried after the other candidates until then.
 
 Responses echo the model name the client sent.
 

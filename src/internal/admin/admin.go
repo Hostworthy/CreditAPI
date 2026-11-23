@@ -373,6 +373,7 @@ func (a *Admin) createKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.subs.Store.SetKeyGrants(k.ID, grants); err != nil {
+		_ = a.keys.Delete(k.ID) // do not leave a key without its grants
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -33,7 +33,9 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-The server listens on port 8080. All state (API keys, subscriptions, saved
+The server listens on port 8080. `docker-compose.yml` publishes it on
+`127.0.0.1` only; change the `ports` line to `"8080:8080"` to reach it from
+other devices on your network, such as your phone. All state (API keys, subscriptions, saved
 logins, CLI files) lives in the `creditapi-data` volume. Every setting is
 described in [ENVIRONMENT.md](ENVIRONMENT.md).
 

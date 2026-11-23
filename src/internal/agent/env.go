@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -161,4 +163,26 @@ func CLIVersion(ctx context.Context, bin string, env []string) string {
 		return "unavailable (" + err.Error() + ")"
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// RunRoot returns a private directory (mode 0700) for one provider's
+// per-request files, under the system temp directory:
+// <tmp>/creditapi-<uid>/<provider>. Keeping providers apart lets the Cursor
+// rules deny reads of Claude's prompts and bridge addresses.
+func RunRoot(provider string) (string, error) {
+	dir := RunRootPath(provider)
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return "", err
+		}
+		if err := os.Chmod(d, 0o700); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+// RunRootPath is RunRoot without creating anything.
+func RunRootPath(provider string) string {
+	return filepath.Join(os.TempDir(), "creditapi-"+strconv.Itoa(os.Getuid()), provider)
 }

@@ -298,7 +298,11 @@ func newCallID() string {
 
 // Run implements agent.Backend.
 func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOptions, cb agent.Callbacks) (*agent.Result, error) {
-	ws, err := os.MkdirTemp("", "creditapi-cursor-")
+	root, err := agent.RunRoot(Provider)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := os.MkdirTemp(root, "run-")
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +332,8 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 	}
 	args = append(args, prompt)
 
-	env := append(acc.Env(b), "NO_OPEN_BROWSER=1")
+	// TMPDIR keeps the CLI's own temporary files inside this run's workspace.
+	env := append(acc.Env(b), "NO_OPEN_BROWSER=1", "TMPDIR="+ws)
 	start := time.Now()
 	proc, err := agent.StartProc(ctx, b.Bin, args, env, ws, nil)
 	if err != nil {

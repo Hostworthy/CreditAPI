@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -68,7 +69,9 @@ func New(cfg *config.Config, version string) (*Server, error) {
 	}}
 	claudeBackend := &claude.Backend{Bin: cfg.ClaudeBin, WorkDir: workDir, Bridge: bridge, Default: cfg.DefaultModel, List: cfg.Models}
 	cursorBackend := &cursor.Backend{Bin: cfg.CursorBin, Bridge: bridge, Default: cfg.CursorDefaultModel, List: cfg.CursorModels,
-		Protected: []string{cfg.DataDir}}
+		// Claude's per-request files (prompts, bridge addresses) live in its
+		// own run root; Cursor's tools must not read them.
+		Protected: []string{cfg.DataDir, agent.RunRootPath(claude.Provider)}}
 	subs := subscriptions.NewManager(cfg.DataDir, store, env,
 		subscriptions.Routing{Aliases: cfg.ModelAliases, Strict: cfg.StrictModels}, claudeBackend, cursorBackend)
 	if !existed {
@@ -85,6 +88,17 @@ func New(cfg *config.Config, version string) (*Server, error) {
 			bridge.Close()
 			return nil, fmt.Errorf("create first subscriptions: %w", err)
 		}
+	}
+
+	known := map[string]bool{}
+	for _, k := range ks.List() {
+		known[k.ID] = true
+	}
+	if n, err := store.PruneKeys(known); err != nil {
+		bridge.Close()
+		return nil, fmt.Errorf("clean up subscription grants: %w", err)
+	} else if n > 0 {
+		slog.Warn(logging.Event("subscription", "grants", "pruned"), slog.Int("removed", n))
 	}
 
 	s := &Server{Config: cfg, Version: version, Keys: ks, Subs: subs, Slots: agent.NewSlots(cfg.MaxConcurrent), bridge: bridge}
@@ -193,7 +207,10 @@ func (s *Server) Run(ctx context.Context) error {
 		slog.Info(logging.Event("config", "public-url", "unset"), slog.String("hint", "login links in errors use the address the client called"))
 	}
 
+	baseCtx, cancelBase := context.WithCancel(context.Background())
+	defer cancelBase()
 	srv := &http.Server{
+		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		Addr:              cfg.Addr(),
 		Handler:           s.handler,
 		ReadHeaderTimeout: 15 * time.Second,
@@ -219,7 +236,13 @@ func (s *Server) Run(ctx context.Context) error {
 		slog.Info(logging.Event("server", "shutdown", "started"))
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			// Requests still running after the grace period: cancel them,
+			// which kills their CLI process groups, and close connections.
+			slog.Warn(logging.Event("server", "shutdown", "forced"), logging.Err(err))
+		}
+		cancelBase()
+		_ = srv.Close()
 	}
 	return s.Close()
 }

@@ -61,6 +61,13 @@ func (a *Account) Env(b Backend) []string {
 // requests (with the same credential) before the CLI is tried again.
 const FailFastWindow = 5 * time.Minute
 
+// After a usage-limit or overload error an account is tried after the other
+// candidates until these have passed.
+const (
+	RateLimitCooldown = 60 * time.Second
+	OverloadCooldown  = 15 * time.Second
+)
+
 // Execute runs a completion on an account and records the outcome: success
 // and failure counters and whether the login works. While the login is known
 // to be broken, requests fail immediately without starting the CLI.
@@ -84,8 +91,13 @@ func Execute(ctx context.Context, b Backend, acc *Account, opts RunOptions, cb C
 	case errors.As(err, &ce):
 		ce.Subscription = acc.ID
 		acc.Status.RecordError(ce.Message)
-		if ce.Kind == "auth" {
+		switch ce.Kind {
+		case "auth":
 			acc.Status.RecordAuth(false, ce.Message, version, source)
+		case "rate_limit":
+			acc.Status.CoolDown(time.Now().Add(RateLimitCooldown))
+		case "overloaded":
+			acc.Status.CoolDown(time.Now().Add(OverloadCooldown))
 		}
 	case ctx.Err() == nil:
 		acc.Status.RecordError(err.Error())

@@ -260,6 +260,29 @@ func (st *Store) SetKeyGrants(keyID string, subIDs []string) error {
 	return st.saveLocked()
 }
 
+// PruneKeys removes grants for key IDs not in known and reports how many
+// were removed.
+func (st *Store) PruneKeys(known map[string]bool) (int, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	removed := 0
+	for _, s := range st.subs {
+		keep := s.Keys[:0]
+		for _, k := range s.Keys {
+			if known[k] {
+				keep = append(keep, k)
+			} else {
+				removed++
+			}
+		}
+		s.Keys = keep
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	return removed, st.saveLocked()
+}
+
 // GrantsOf returns the IDs of subscriptions keyID may use, in priority order
 // (disabled ones included).
 func (st *Store) GrantsOf(keyID string) []string {

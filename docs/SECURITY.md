@@ -51,6 +51,17 @@ so Cursor subscriptions are hardened as far as the CLI allows:
 - `--force` is never passed, so nothing outside the allow list is approved.
 - The only MCP server is the loopback endpoint for the client's own tools.
 
+- Each provider keeps its per-request files in its own private folder
+  (`<tmp>/creditapi-<uid>/claude` and `.../cursor`, mode `0700`); Cursor's
+  rules deny reading Claude's folder, and the Cursor CLI's own temporary files
+  go into the request's workspace.
+
+Two Cursor requests running at the same time can still read each other's
+workspace: a rule cannot allow one sibling folder and deny the rest. Only an
+operating-system sandbox would close that. The Cursor CLI has a
+`--sandbox enabled` option; it is not used yet because it has not been tested
+inside this container.
+
 These rules come from the Cursor CLI and depend on it enforcing them, so a
 Cursor subscription gives prompts more room than a Claude one. Only give Cursor
 access to keys used by apps and people you trust, and keep the container
@@ -100,6 +111,9 @@ sign-in link but no credentials.
 ## Container
 
 - Runs as the unprivileged user `app` (uid 1000) with `tini` as PID 1.
+- `docker-compose.yml` drops all Linux capabilities, sets
+  `no-new-privileges`, limits processes and publishes the port on
+  `127.0.0.1` only (change it to reach the server from other devices).
 - The Claude Code binary is downloaded from Anthropic's release bucket and its
   SHA-256 checksum is verified against the release manifest at build time.
 - The Cursor CLI package is downloaded over HTTPS from Cursor's download

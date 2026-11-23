@@ -35,6 +35,7 @@ var directiveRe = regexp.MustCompile(`\[fake:([a-z-]+)\]`)
 //	[fake:echo-input]   reply with the full user input
 //	[fake:long]         a reply of about 4000 characters
 //	[fake:whoami]       reply with the provider and subscription that answered
+//	[fake:not-json]     ignore a JSON-object instruction and reply in prose
 func Directives(text string) map[string]bool {
 	out := map[string]bool{}
 	for _, m := range directiveRe.FindAllStringSubmatch(text, -1) {

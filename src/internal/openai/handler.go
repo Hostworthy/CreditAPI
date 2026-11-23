@@ -279,7 +279,19 @@ func (a *attempt) run(ctx context.Context, cb agent.Callbacks) (*agent.Result, e
 	}
 	var signedOut []subscriptions.Candidate
 	var firstErr error
+	// Subscriptions resting after a usage limit or overload go last; they are
+	// still tried when nothing else answers.
+	cands := make([]subscriptions.Candidate, 0, len(a.cands))
+	var resting []subscriptions.Candidate
 	for _, c := range a.cands {
+		if c.Account.Status.CoolingDown() {
+			resting = append(resting, c)
+		} else {
+			cands = append(cands, c)
+		}
+	}
+	cands = append(cands, resting...)
+	for _, c := range cands {
 		a.served = c
 		a.tries++
 		opts := a.opts
@@ -428,6 +440,10 @@ func (h *Handler) complete(ctx context.Context, w http.ResponseWriter, a *attemp
 	switch {
 	case res.StructuredOutput != nil:
 		s := string(res.StructuredOutput)
+		msg.Content = &s
+	case a.opts.JSONObject && res.Text != "":
+		// No JSON found: send what the model said rather than nothing.
+		s := res.Text
 		msg.Content = &s
 	case text != "" || len(res.ToolCalls) == 0:
 		msg.Content = &text

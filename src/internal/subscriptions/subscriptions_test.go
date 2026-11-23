@@ -414,3 +414,18 @@ func TestBootstrapFreshInstall(t *testing.T) {
 		t.Fatalf("version %q", m.Version("cursor"))
 	}
 }
+
+func TestPruneKeys(t *testing.T) {
+	st, _ := openStore(t)
+	scenario(t, st)
+	n, err := st.PruneKeys(map[string]bool{"k1": true, "k2": true})
+	if err != nil || n != 5 { // k3 once, k4 and k5 twice each
+		t.Fatalf("removed %d %v", n, err)
+	}
+	if got := ids(st.ForKey("k4")); len(got) != 0 {
+		t.Fatalf("k4 still granted: %v", got)
+	}
+	if n, _ := st.PruneKeys(map[string]bool{"k1": true, "k2": true}); n != 0 {
+		t.Fatal("second prune should find nothing")
+	}
+}

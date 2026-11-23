@@ -589,3 +589,17 @@ func TestLoginURLHostRestriction(t *testing.T) {
 		t.Fatal("host matching")
 	}
 }
+
+func TestExecuteCoolsDownAfterLimits(t *testing.T) {
+	acc := testAccount(t)
+	b := &stubBackend{err: &Error{Kind: "rate_limit", Status: 429, Message: "limit"}}
+	_, _ = Execute(context.Background(), b, acc, RunOptions{}, Callbacks{})
+	if !acc.Status.CoolingDown() || acc.Status.Snapshot().CooldownUntil == nil {
+		t.Fatal("a usage limit should start a cooldown")
+	}
+	b.err = nil
+	_, _ = Execute(context.Background(), b, acc, RunOptions{}, Callbacks{})
+	if acc.Status.CoolingDown() {
+		t.Fatal("a success ends the cooldown")
+	}
+}

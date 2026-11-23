@@ -482,3 +482,11 @@ func TestInvalidModelName(t *testing.T) {
 		t.Fatalf("%d %v", resp.StatusCode, out)
 	}
 }
+
+func TestJSONModeWithoutJSONReturnsText(t *testing.T) {
+	s, key := signedIn(t, support.Options{})
+	_, out := s.Chat(key, map[string]any{"messages": user("[fake:not-json] hi"), "response_format": map[string]any{"type": "json_object"}})
+	if got := support.Content(out); !strings.HasPrefix(got, "Fake reply to:") {
+		t.Fatalf("JSON mode without JSON should return the text, got %q", got)
+	}
+}

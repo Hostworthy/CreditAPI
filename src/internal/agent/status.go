@@ -16,6 +16,7 @@ type Status struct {
 	lastSuccessAt time.Time
 	completed     int64
 	failed        int64
+	cooldownUntil time.Time
 
 	auth AuthInfo
 }
@@ -73,11 +74,28 @@ func (s *Status) RecordError(msg string) {
 	s.mu.Unlock()
 }
 
+// CoolDown marks the account as resting (usage limit or overload) until t.
+func (s *Status) CoolDown(until time.Time) {
+	s.mu.Lock()
+	if until.After(s.cooldownUntil) {
+		s.cooldownUntil = until
+	}
+	s.mu.Unlock()
+}
+
+// CoolingDown reports whether the account is resting.
+func (s *Status) CoolingDown() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return time.Now().Before(s.cooldownUntil)
+}
+
 // RecordSuccess counts a successful completion.
 func (s *Status) RecordSuccess() {
 	s.mu.Lock()
 	s.completed++
 	s.lastSuccessAt = time.Now()
+	s.cooldownUntil = time.Time{}
 	s.mu.Unlock()
 }
 
@@ -101,6 +119,7 @@ type StatusSnapshot struct {
 	LastErrorAt   *time.Time      `json:"last_error_at,omitempty"`
 	RateLimit     json.RawMessage `json:"rate_limit,omitempty"`
 	RateLimitAt   *time.Time      `json:"rate_limit_at,omitempty"`
+	CooldownUntil *time.Time      `json:"cooldown_until,omitempty"`
 }
 
 // Snapshot returns a copy for JSON encoding.
@@ -115,6 +134,10 @@ func (s *Status) Snapshot() StatusSnapshot {
 	if !s.lastErrorAt.IsZero() {
 		t := s.lastErrorAt
 		snap.LastErrorAt = &t
+	}
+	if time.Now().Before(s.cooldownUntil) {
+		t := s.cooldownUntil
+		snap.CooldownUntil = &t
 	}
 	if !s.rateLimitAt.IsZero() {
 		t := s.rateLimitAt

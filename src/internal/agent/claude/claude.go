@@ -178,7 +178,11 @@ type block struct {
 
 // Run implements agent.Backend.
 func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOptions, cb agent.Callbacks) (*agent.Result, error) {
-	tmp, err := os.MkdirTemp("", "creditapi-run-")
+	root, err := agent.RunRoot(Provider)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.MkdirTemp(root, "run-")
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +270,15 @@ func (b *Backend) Run(ctx context.Context, acc *agent.Account, opts agent.RunOpt
 		return nil, agent.Classify(b.Label(), 0, "claude exited without a result: "+msg)
 	}
 	if res.FinishReason == "" {
+		if waitErr != nil {
+			// The process died mid-answer: do not pass a cut-off reply off as
+			// complete.
+			msg := strings.TrimSpace(proc.Stderr.String())
+			if msg == "" {
+				msg = waitErr.Error()
+			}
+			return nil, agent.Classify(b.Label(), 0, "claude stopped before finishing: "+msg)
+		}
 		res.FinishReason = "stop"
 	}
 	slog.Debug(logging.Event("claude", "run", "finished"), slog.String("model", res.Model), slog.String("finish", res.FinishReason),
@@ -483,11 +496,11 @@ func (b *Backend) parse(stdout io.Reader, acc *agent.Account, opts agent.RunOpti
 			return nil, err
 		}
 	}
-	// Stream ended without a result line.
+	// Stream ended without a result line. FinishReason stays empty so Run
+	// can tell a clean exit from a crash.
 	if text.Len() > 0 {
 		res.Text = text.String()
 		res.Usage = sumUsage
-		res.FinishReason = "stop"
 		return res, nil
 	}
 	return nil, nil

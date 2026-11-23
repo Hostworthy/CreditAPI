@@ -225,6 +225,7 @@ function subscriptionItem(sub, index, count) {
     el("p", { class: "muted small-text", text: credentialText(sub) }),
     usage,
     el("div", { class: "meta" }, ...meta),
+    rt.cooldown_until ? el("p", { class: "muted small-text", text: `Resting until ${fmtDate(rt.cooldown_until)} after a usage limit or overload; other subscriptions answer first.` }) : null,
     rt.last_error ? el("p", { class: "muted small-text", text: `Last error ${fmtDate(rt.last_error_at)}: ${rt.last_error}` }) : null,
     el("div", { class: "actions" },
       el("a", { class: `button small${state === "login_required" ? " primary" : ""}`, href: `/login?subscription=${encodeURIComponent(sub.id)}`, text: "Sign-in" }),

@@ -119,7 +119,7 @@ func runAuto(inv *invocation) int {
 		if desc := describeImages(inv.content); desc != "" {
 			reply = desc + " " + reply
 		}
-		if strings.Contains(inv.system, "single valid JSON object") {
+		if strings.Contains(inv.system, "single valid JSON object") && !d["not-json"] {
 			obj, _ := json.Marshal(map[string]any{"fake": true, "reply": fakecore.LastUserLine(inv.text)})
 			reply = "```json\n" + string(obj) + "\n```"
 		}
