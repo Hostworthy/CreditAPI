@@ -1,0 +1,38 @@
+meta {
+  name: Create key
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/admin/api/keys
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "name": "bruno-sparkyfitness"
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+script:post-response {
+  bru.setVar("apiKey", res.body.secret);
+  bru.setVar("keyId", res.body.key.id);
+}
+
+tests {
+  test("returns the secret once", function () {
+    expect(res.body.secret).to.match(/^sk-cmta-[A-Za-z0-9_-]{40,}$/);
+    expect(res.body.key.name).to.equal("bruno-sparkyfitness");
+    expect(res.body.key.hint).to.match(/^sk-cmta-.{4}….{4}$/);
+  });
+}

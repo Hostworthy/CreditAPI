@@ -1,0 +1,102 @@
+meta {
+  name: Tool call
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "log_food",
+          "description": "Log a food entry to the diary",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "food_name"
+            ],
+            "properties": {
+              "food_name": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": "number"
+              },
+              "meal_type": {
+                "type": "string",
+                "enum": [
+                  "breakfast",
+                  "lunch",
+                  "dinner",
+                  "snacks"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_daily_summary",
+          "description": "Calories and macros for a day",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are Sparky. Use tools to log food."
+      },
+      {
+        "role": "user",
+        "content": "I had 2 boiled eggs for breakfast, please log them."
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("toolMessage", JSON.stringify(res.body.choices[0].message));
+}
+
+tests {
+  const choice = res.body.choices[0];
+  const call = choice.message.tool_calls[0];
+  test("finish_reason is tool_calls", function () {
+    expect(choice.finish_reason).to.equal("tool_calls");
+    expect(choice.message.tool_calls).to.have.length(1);
+  });
+  test("calls log_food with schema-shaped arguments", function () {
+    expect(call.type).to.equal("function");
+    expect(call.id).to.match(/^call_/);
+    expect(call.function.name).to.equal("log_food");
+    expect(JSON.parse(call.function.arguments)).to.deep.equal({ food_name: "fake food name", quantity: 42, meal_type: "breakfast" });
+  });
+}

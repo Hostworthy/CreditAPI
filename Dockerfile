@@ -1,18 +1,17 @@
 # syntax=docker/dockerfile:1
 
 # --- Go server ---------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM golang:1.24 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY cmd ./cmd
-COPY internal ./internal
+COPY src ./src
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
-    -o /out/claude-max-to-api ./cmd/claude-max-to-api
+    -o /out/claude-max-to-api ./src/cmd/claude-max-to-api
 
 # --- Claude Code CLI (native binary, checksum verified) -----------------------
 FROM debian:trixie-slim AS claude
@@ -37,7 +36,8 @@ COPY --from=claude /usr/local/bin/claude /usr/local/bin/claude
 COPY --from=build /out/claude-max-to-api /usr/local/bin/claude-max-to-api
 
 ENV DATA_DIR=/data \
-    LISTEN_ADDR=:8080 \
+    HOST=0.0.0.0 \
+    PORT=8080 \
     DISABLE_AUTOUPDATER=1
 
 USER app

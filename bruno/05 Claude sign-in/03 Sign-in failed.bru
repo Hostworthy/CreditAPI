@@ -1,0 +1,42 @@
+meta {
+  name: Sign-in failed
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/admin/api/claude
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:pre-request {
+  // The fake sign-in runs in a terminal on the server; wait for it to settle.
+  const want = "failed";
+  for (let i = 0; i < 40; i++) {
+    const r = await bru.sendRequest({
+      method: "GET",
+      url: bru.getEnvVar("baseUrl") + "/admin/api/claude",
+      headers: { Authorization: "Bearer " + bru.getEnvVar("adminPassword") },
+    });
+    const body = r.data || r.body || {};
+    if (body.login && body.login.state === want) break;
+    await bru.sleep(250);
+  }
+}
+
+tests {
+  test("failed with an explanation", function () {
+    expect(res.body.login.state).to.equal("failed");
+    expect(res.body.login.error).to.not.be.empty;
+    expect(res.body.login.output).to.contain("Invalid code");
+  });
+}

@@ -1,0 +1,41 @@
+meta {
+  name: Chat says login required
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How much protein is in an egg?"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 401
+}
+
+tests {
+  test("OpenAI authentication_error with our code", function () {
+    expect(res.body.error.type).to.equal("authentication_error");
+    expect(res.body.error.code).to.equal("claude_login_required");
+  });
+  test("message links to the login page", function () {
+    expect(res.body.error.message).to.contain(bru.getEnvVar("baseUrl") + "/login");
+  });
+}

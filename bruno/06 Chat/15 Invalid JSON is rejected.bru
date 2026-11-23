@@ -1,0 +1,33 @@
+meta {
+  name: Invalid JSON is rejected
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: text
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:text {
+  {oops
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("invalid_json", function () {
+    expect(res.body.error.code).to.equal("invalid_json");
+  });
+}

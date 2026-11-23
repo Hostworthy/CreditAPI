@@ -1,0 +1,31 @@
+meta {
+  name: Disable spare key
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/admin/api/keys/{{spareKeyId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "disabled": true
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("disabled", function () {
+    expect(res.body.key.disabled).to.equal(true);
+  });
+}

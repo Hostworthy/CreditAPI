@@ -1,0 +1,30 @@
+meta {
+  name: Create spare key
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/admin/api/keys
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "name": "bruno-spare"
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+script:post-response {
+  bru.setVar("spareKey", res.body.secret);
+  bru.setVar("spareKeyId", res.body.key.id);
+}

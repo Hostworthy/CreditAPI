@@ -1,7 +1,12 @@
-.git
-.github
-data
-*.md
 .env
 .env.*
 !.env.example
+bin/
+data/
+bruno/
+node_modules/
+.git/
+.github/
+.vscode/
+*.md
+docs/

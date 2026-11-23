@@ -1,0 +1,46 @@
+meta {
+  name: Small photo as bare base64
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image_url",
+            "image_url": "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mPQWBCAFTEMLQkAUF1GARQGH6oAAAAASUVORK5CYII="
+          },
+          {
+            "type": "text",
+            "text": "Label please"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("bare base64 is accepted and left as is", function () {
+    expect(res.body.choices[0].message.content).to.equal("I see 1 image(s): image/png 8x8. Fake reply to: Label please");
+  });
+}

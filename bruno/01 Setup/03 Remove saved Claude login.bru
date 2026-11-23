@@ -1,0 +1,25 @@
+meta {
+  name: Remove saved Claude login
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/admin/api/claude/token
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("removed", function () {
+    expect(res.body.ok).to.equal(true);
+  });
+}

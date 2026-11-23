@@ -1,0 +1,39 @@
+meta {
+  name: max_tokens limits the reply
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:long]"
+      }
+    ],
+    "max_tokens": 300
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("finish_reason is length", function () {
+    expect(res.body.choices[0].finish_reason).to.equal("length");
+    expect(res.body.choices[0].message.content.length).to.equal(1200);
+  });
+}

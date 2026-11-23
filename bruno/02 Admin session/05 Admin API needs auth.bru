@@ -1,0 +1,21 @@
+meta {
+  name: Admin API needs auth
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/admin/api/keys
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 401
+}
+
+tests {
+  test("not signed in", function () {
+    expect(res.body.error).to.equal("not signed in");
+  });
+}

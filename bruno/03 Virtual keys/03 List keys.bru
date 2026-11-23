@@ -1,0 +1,32 @@
+meta {
+  name: List keys
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/admin/api/keys
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  const mine = res.body.keys.filter((k) => k.name.startsWith("bruno-"));
+  test("both keys are listed", function () {
+    expect(mine.map((k) => k.name)).to.include.members(["bruno-sparkyfitness", "bruno-spare"]);
+  });
+  test("hashes and secrets are never returned", function () {
+    for (const k of res.body.keys) {
+      expect(k.hash || "").to.equal("");
+      expect(JSON.stringify(k)).to.not.contain(bru.getVar("apiKey"));
+    }
+  });
+}

@@ -1,0 +1,38 @@
+meta {
+  name: CLI crash
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:crash]"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 502
+}
+
+tests {
+  test("upstream_error with the CLI message", function () {
+    expect(res.body.error.code).to.equal("upstream_error");
+    expect(res.body.error.message).to.contain("simulated crash");
+  });
+}

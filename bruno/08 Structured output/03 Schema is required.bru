@@ -1,0 +1,40 @@
+meta {
+  name: Schema is required
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "x"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema"
+    }
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("invalid_response_format", function () {
+    expect(res.body.error.code).to.equal("invalid_response_format");
+  });
+}

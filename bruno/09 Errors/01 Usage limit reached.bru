@@ -1,0 +1,38 @@
+meta {
+  name: Usage limit reached
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:rate-limit]"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 429
+}
+
+tests {
+  test("rate_limit_error", function () {
+    expect(res.body.error.type).to.equal("rate_limit_error");
+    expect(res.body.error.code).to.equal("rate_limit_exceeded");
+  });
+}

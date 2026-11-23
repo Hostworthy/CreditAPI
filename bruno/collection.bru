@@ -1,0 +1,12 @@
+docs {
+  # claude-max-to-api end-to-end tests
+
+  Runs against the real server with the fake Claude CLI (`bin/fakeclaude`), so no
+  Claude account is needed. Start the stack with `make e2e` (uses `.env.bruno`),
+  then run this collection from the Bruno app with the `local` environment or with
+  `make bruno`. `make e2e-ci` does both headless.
+
+  The first folder resets the server (removes the saved Claude login), so the
+  collection can be re-run against the same stack. The fake CLI reacts to
+  `[fake:...]` directives in prompts; see `src/tests/support/fakeclaude/auto.go`.
+}

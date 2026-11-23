@@ -1,0 +1,30 @@
+meta {
+  name: Check again reuses the result
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/admin/api/claude/check
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("cached, nothing to do", function () {
+    expect(res.body.state).to.equal("valid");
+    expect(res.body.cached).to.equal(true);
+  });
+}

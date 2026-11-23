@@ -1,0 +1,38 @@
+meta {
+  name: Disabled key is refused
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{spareKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 401
+}
+
+tests {
+  test("OpenAI-style invalid key error", function () {
+    expect(res.body.error.code).to.equal("invalid_api_key");
+    expect(res.body.error.type).to.equal("invalid_request_error");
+  });
+}
