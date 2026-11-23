@@ -1,0 +1,85 @@
+meta {
+  name: parallel_tool_calls false
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "log_food",
+          "description": "Log a food entry to the diary",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "food_name"
+            ],
+            "properties": {
+              "food_name": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": "number"
+              },
+              "meal_type": {
+                "type": "string",
+                "enum": [
+                  "breakfast",
+                  "lunch",
+                  "dinner",
+                  "snacks"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_daily_summary",
+          "description": "Calories and macros for a day",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "parallel_tool_calls": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "use log_food and get_daily_summary"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("only the first call", function () {
+    expect(res.body.choices[0].message.tool_calls).to.have.length(1);
+  });
+}

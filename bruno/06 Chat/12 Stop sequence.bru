@@ -1,0 +1,41 @@
+meta {
+  name: Stop sequence
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:slow]"
+      }
+    ],
+    "stop": [
+      "STOP"
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("cut before the stop sequence", function () {
+    expect(res.body.choices[0].message.content).to.equal("one two three ");
+    expect(res.body.choices[0].finish_reason).to.equal("stop");
+  });
+}

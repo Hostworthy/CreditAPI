@@ -1,0 +1,25 @@
+meta {
+  name: Submit code
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/admin/api/claude/login/code
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "code": "fake-code-bruno#state"
+  }
+}
+
+assert {
+  res.status: eq 200
+}

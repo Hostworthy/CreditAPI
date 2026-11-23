@@ -1,0 +1,38 @@
+meta {
+  name: n greater than 1 is rejected
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ],
+    "n": 2
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("unsupported_n", function () {
+    expect(res.body.error.code).to.equal("unsupported_n");
+  });
+}

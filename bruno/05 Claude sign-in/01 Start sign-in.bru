@@ -1,0 +1,32 @@
+meta {
+  name: Start sign-in
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/admin/api/claude/login
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("firstLoginUrl", res.body.url);
+}
+
+tests {
+  test("waiting for the code", function () {
+    expect(res.body.state).to.equal("waiting_for_code");
+  });
+  test("shows the Claude sign-in link", function () {
+    expect(res.body.url).to.match(/^https:\/\/claude\.ai\/oauth\/authorize\?/);
+  });
+}

@@ -1,0 +1,29 @@
+meta {
+  name: Usage was counted
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/admin/api/keys
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  const key = res.body.keys.find((k) => k.id === bru.getVar("keyId"));
+  test("requests and tokens recorded for the key", function () {
+    expect(key.requests).to.be.above(10);
+    expect(key.input_tokens).to.be.above(0);
+    expect(key.output_tokens).to.be.above(0);
+    expect(key.last_used_at).to.be.a("string");
+  });
+}

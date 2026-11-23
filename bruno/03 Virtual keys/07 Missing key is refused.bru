@@ -1,0 +1,33 @@
+meta {
+  name: Missing key is refused
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 401
+}
+
+tests {
+  test("invalid_api_key", function () {
+    expect(res.body.error.code).to.equal("invalid_api_key");
+  });
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Still works afterwards
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "are you ok?"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("errors are not mistaken for a logout", function () {
+    expect(res.body.choices[0].message.content).to.equal("Fake reply to: are you ok?");
+  });
+}

@@ -1,0 +1,21 @@
+meta {
+  name: Session is active
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/admin/api/me
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("authenticated via cookie", function () {
+    expect(res.body.authenticated).to.equal(true);
+  });
+}

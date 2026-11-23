@@ -1,0 +1,37 @@
+meta {
+  name: Unknown model falls back
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("echoes the requested model", function () {
+    expect(res.body.model).to.equal("gpt-4o-mini");
+  });
+}

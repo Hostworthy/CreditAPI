@@ -1,0 +1,31 @@
+meta {
+  name: Claude status
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/admin/api/claude
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("no token saved", function () {
+    expect(res.body.token.source).to.equal("");
+  });
+  test("no sign-in running", function () {
+    expect(res.body.login.state).to.equal("idle");
+  });
+  test("reports the fake CLI version", function () {
+    expect(res.body.runtime.cli_version).to.contain("fake");
+  });
+}

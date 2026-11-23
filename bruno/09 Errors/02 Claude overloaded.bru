@@ -1,0 +1,37 @@
+meta {
+  name: Claude overloaded
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "[fake:overloaded]"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 503
+}
+
+tests {
+  test("overloaded", function () {
+    expect(res.body.error.code).to.equal("overloaded");
+  });
+}

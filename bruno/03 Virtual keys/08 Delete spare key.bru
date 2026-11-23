@@ -1,0 +1,19 @@
+meta {
+  name: Delete spare key
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/admin/api/keys/{{spareKeyId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}

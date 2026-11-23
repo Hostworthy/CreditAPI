@@ -1,0 +1,25 @@
+meta {
+  name: Late code is refused
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/admin/api/claude/login/code
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "code": "fake-code-too-late"
+  }
+}
+
+assert {
+  res.status: eq 409
+}

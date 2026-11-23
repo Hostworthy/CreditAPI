@@ -1,0 +1,6 @@
+{
+  "go.useLanguageServer": true,
+  "editor.formatOnSave": true,
+  "[go]": { "editor.defaultFormatter": "golang.go" },
+  "gopls": { "ui.semanticTokens": true }
+}

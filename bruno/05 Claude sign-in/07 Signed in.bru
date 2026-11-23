@@ -1,0 +1,48 @@
+meta {
+  name: Signed in
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/admin/api/claude
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:pre-request {
+  // The fake sign-in runs in a terminal on the server; wait for it to settle.
+  const want = "success";
+  for (let i = 0; i < 40; i++) {
+    const r = await bru.sendRequest({
+      method: "GET",
+      url: bru.getEnvVar("baseUrl") + "/admin/api/claude",
+      headers: { Authorization: "Bearer " + bru.getEnvVar("adminPassword") },
+    });
+    const body = r.data || r.body || {};
+    if (body.login && body.login.state === want) break;
+    await bru.sleep(250);
+  }
+}
+
+tests {
+  test("sign-in succeeded", function () {
+    expect(res.body.login.state).to.equal("success");
+  });
+  test("token saved from the login", function () {
+    expect(res.body.token.source).to.equal("login");
+    expect(res.body.token.hint).to.match(/^sk-ant-oat01-fak.*…/);
+    expect(res.body.token.expires_about).to.be.a("string");
+  });
+  test("full token never shown", function () {
+    expect(res.body.login.output).to.not.match(/sk-ant-oat01-fake-[0-9a-f]{20,}/);
+  });
+}

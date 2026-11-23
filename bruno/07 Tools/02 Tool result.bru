@@ -1,0 +1,44 @@
+meta {
+  name: Tool result
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:pre-request {
+  // Send the conversation back the way an OpenAI client does after running the tool.
+  const assistant = JSON.parse(bru.getVar("toolMessage"));
+  req.setBody({
+    model: "sonnet",
+    tools: [{ type: "function", function: { name: "log_food", parameters: { type: "object", properties: {} } } }],
+    messages: [
+      { role: "user", content: "I had 2 boiled eggs for breakfast, please log them." },
+      assistant,
+      { role: "tool", tool_call_id: assistant.tool_calls[0].id, content: JSON.stringify({ ok: true, entry_id: 7 }) },
+    ],
+  });
+}
+
+tests {
+  test("final answer uses the tool result", function () {
+    expect(res.body.choices[0].finish_reason).to.equal("stop");
+    expect(res.body.choices[0].message.content).to.equal('Received 1 tool result(s): {"ok":true,"entry_id":7}');
+  });
+}

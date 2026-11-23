@@ -1,0 +1,51 @@
+meta {
+  name: Simple chat
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How many calories are in an apple?"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  const choice = res.body.choices[0];
+  test("assistant reply", function () {
+    expect(choice.message.role).to.equal("assistant");
+    expect(choice.message.content).to.equal("Fake reply to: How many calories are in an apple?");
+    expect(choice.finish_reason).to.equal("stop");
+  });
+  test("OpenAI envelope", function () {
+    expect(res.body.object).to.equal("chat.completion");
+    expect(res.body.id).to.match(/^chatcmpl-/);
+    expect(res.body.model).to.equal("sonnet");
+  });
+  test("usage adds up", function () {
+    const u = res.body.usage;
+    expect(u.prompt_tokens).to.be.above(0);
+    expect(u.completion_tokens).to.be.above(0);
+    expect(u.total_tokens).to.equal(u.prompt_tokens + u.completion_tokens);
+  });
+}

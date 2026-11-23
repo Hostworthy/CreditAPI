@@ -1,0 +1,25 @@
+meta {
+  name: Submit wrong code
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/admin/api/claude/login/code
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminPassword}}
+}
+
+body:json {
+  {
+    "code": "not-a-real-code"
+  }
+}
+
+assert {
+  res.status: eq 200
+}

@@ -1,0 +1,45 @@
+meta {
+  name: Broken photo is rejected
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/v1/chat/completions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,bm90IGFuIGltYWdl"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("clear client error", function () {
+    expect(res.body.error.type).to.equal("invalid_request_error");
+    expect(res.body.error.message).to.contain("image 1");
+  });
+}

@@ -1,0 +1,21 @@
+meta {
+  name: Script asset
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/assets/app.js
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("served as JavaScript", function () {
+    expect(res.headers["content-type"]).to.contain("javascript");
+  });
+}
