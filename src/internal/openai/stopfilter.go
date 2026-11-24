@@ -18,6 +18,7 @@ type stopFilter struct {
 	maxLen int
 	held   string
 	hit    bool
+	hitSeq string // the stop sequence that matched
 }
 
 func newStopFilter(stops []string) *stopFilter {
@@ -41,6 +42,7 @@ func (f *stopFilter) push(s string) (string, bool) {
 	for _, st := range f.stops {
 		if i := strings.Index(buf, st); i >= 0 && (cut < 0 || i < cut) {
 			cut = i
+			f.hitSeq = st
 		}
 	}
 	if cut >= 0 {
@@ -90,6 +92,7 @@ func (h *Handler) runWithStops(ctx context.Context, a *attempt, cb agent.Callbac
 	}
 	res, err := a.run(runCtx, cb)
 	if filter.hit && ctx.Err() == nil {
+		a.stopHit = filter.hitSeq
 		// Stopped on purpose at a stop sequence.
 		if res == nil {
 			res = &agent.Result{}

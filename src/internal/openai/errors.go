@@ -72,11 +72,15 @@ func (h *Handler) clean(msg string) string {
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error, loginURL string) {
+	h.failAs(openaiFormat{}, w, err, loginURL)
+}
+
+func (h *Handler) failAs(f format, w http.ResponseWriter, err error, loginURL string) {
 	if errors.Is(err, context.Canceled) {
 		return // client went away
 	}
 	status, typ, code, msg := describeError(err, loginURL)
-	writeError(w, status, typ, code, h.clean(msg))
+	f.writeError(w, status, typ, code, h.clean(msg))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) { httpx.WriteJSON(w, status, v) }

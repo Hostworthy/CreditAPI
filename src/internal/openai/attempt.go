@@ -21,7 +21,9 @@ type attempt struct {
 	opts   agent.RunOptions
 	stops  []string
 	served subscriptions.Candidate
-	tries  int
+	// stopHit is the stop sequence that ended the reply, if any.
+	stopHit string
+	tries   int
 }
 
 func (a *attempt) run(ctx context.Context, cb agent.Callbacks) (*agent.Result, error) {
