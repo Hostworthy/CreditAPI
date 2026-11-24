@@ -12,7 +12,7 @@
 [![Cursor](https://img.shields.io/badge/Cursor-CLI-000000)](https://cursor.com/docs/cli/overview)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](docs/SETUP.md)
 [![Bruno](https://img.shields.io/badge/Bruno-e2e%20tests-F4AA41)](bruno)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue.svg)](LICENSE)
 
 </div>
 
@@ -64,5 +64,7 @@ use this way. Check Anthropic's
 [terms of service](https://cursor.com/terms-of-service) for your plans, do not
 share access with other people, and only connect a work or someone else's
 subscription if its owner and their policies allow it. Answers come from an AI
-model and can be wrong, so double-check anything that matters. Licensed under
-[MIT](LICENSE).
+model and can be wrong, so double-check anything that matters. Licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE): free for personal and other
+noncommercial use; commercial use needs a separate license from the copyright
+holder. Copies taken before this change keep their MIT license.
