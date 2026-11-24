@@ -6,7 +6,8 @@ Guidance for AI assistants working on this repository. Human-facing docs:
 ## What This Is
 
 A Go server that exposes an OpenAI-compatible API (`/v1/chat/completions`,
-`/v1/models`) backed by AI subscriptions: the Claude Code CLI (`claude -p`,
+`/v1/models`) and an Anthropic-compatible one (`/v1/messages`) backed by AI
+subscriptions: the Claude Code CLI (`claude -p`,
 stream-json) and the Cursor CLI (`cursor-agent -p`, stream-json). Several
 subscriptions can be connected; each virtual API key may use a chosen set of
 them. `/admin` manages subscriptions, keys and which key uses which; `/login`
@@ -32,6 +33,9 @@ make lint       # staticcheck and govulncheck (also a CI job, and weekly)
 - `src/internal/subscriptions`: subscription store, per-key grants, routing
   (`Candidates`), per-subscription accounts and first-start migration.
 - `src/internal/{admin,config,keys,logging,openai,server}`: the rest of the application.
+  `openai/anthropic.go` translates Anthropic requests into the OpenAI shape
+  and writes Anthropic responses; both dialects share `serveChat` and differ
+  only in their `format`.
 - `src/tests`: integration tests on the full server; `src/tests/support`: helpers
   and the fake CLIs (`fakecore`, `fakeclaude`, `fakecursor`, `fakes`).
 - `bruno/`: Bruno collection (`.bru`), ordered folders, `environments/local.bru`.

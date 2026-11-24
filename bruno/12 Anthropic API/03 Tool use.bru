@@ -1,0 +1,56 @@
+meta {
+  name: Tool use
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/messages
+  body: json
+  auth: none
+}
+
+headers {
+  x-api-key: {{apiKey}}
+  anthropic-version: 2023-06-01
+}
+
+body:json {
+  {
+    "model": "sonnet",
+    "max_tokens": 512,
+    "tools": [
+      {
+        "name": "add_task",
+        "description": "Add a task to the to-do list",
+        "input_schema": {
+          "type": "object",
+          "required": ["title"],
+          "properties": {
+            "title": { "type": "string" }
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "Add a task to renew my passport"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("tool_use block with parsed input", function () {
+    expect(res.body.stop_reason).to.equal("tool_use");
+    const use = res.body.content.find((b) => b.type === "tool_use");
+    expect(use.id).to.match(/^toolu_/);
+    expect(use.name).to.equal("add_task");
+    expect(use.input).to.deep.equal({ title: "fake title" });
+  });
+}

@@ -1,0 +1,40 @@
+meta {
+  name: Errors use Anthropic types
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/messages
+  body: json
+  auth: none
+}
+
+headers {
+  x-api-key: sk-credit-not-a-real-key
+  anthropic-version: 2023-06-01
+}
+
+body:json {
+  {
+    "model": "haiku",
+    "max_tokens": 10,
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 401
+}
+
+tests {
+  test("authentication_error envelope", function () {
+    expect(res.body.type).to.equal("error");
+    expect(res.body.error.type).to.equal("authentication_error");
+  });
+}

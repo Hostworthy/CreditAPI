@@ -1,0 +1,45 @@
+meta {
+  name: Message
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/messages
+  body: json
+  auth: none
+}
+
+headers {
+  x-api-key: {{apiKey}}
+  anthropic-version: 2023-06-01
+}
+
+body:json {
+  {
+    "model": "claude-haiku-4-5",
+    "max_tokens": 256,
+    "system": "Be brief.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the capital of France?"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("Anthropic message shape", function () {
+    expect(res.body.type).to.equal("message");
+    expect(res.body.role).to.equal("assistant");
+    expect(res.body.id).to.match(/^msg_/);
+    expect(res.body.content[0]).to.deep.equal({ type: "text", text: "Fake reply to: What is the capital of France?" });
+    expect(res.body.stop_reason).to.equal("end_turn");
+    expect(res.body.usage.output_tokens).to.be.above(0);
+  });
+}

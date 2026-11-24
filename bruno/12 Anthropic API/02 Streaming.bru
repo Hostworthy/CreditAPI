@@ -1,0 +1,52 @@
+meta {
+  name: Streaming
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/anthropic/v1/messages
+  body: json
+  auth: none
+}
+
+headers {
+  x-api-key: {{apiKey}}
+  anthropic-version: 2023-06-01
+}
+
+body:json {
+  {
+    "model": "haiku",
+    "max_tokens": 256,
+    "stream": true,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Stream a short answer"
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  const raw = typeof res.body === "string" ? res.body : JSON.stringify(res.body);
+  const events = raw.split("\n\n").filter((c) => c.startsWith("event: ")).map((c) => {
+    const [ev, data] = c.split("\n");
+    return { name: ev.slice(7), data: JSON.parse(data.slice(6)) };
+  });
+  test("events in Anthropic order", function () {
+    const names = events.map((e) => e.name);
+    expect(names[0]).to.equal("message_start");
+    expect(names.slice(-3)).to.deep.equal(["content_block_stop", "message_delta", "message_stop"]);
+  });
+  test("text deltas assemble the reply", function () {
+    const text = events.filter((e) => e.name === "content_block_delta").map((e) => e.data.delta.text).join("");
+    expect(text).to.equal("Fake reply to: Stream a short answer");
+    expect(events[events.length - 2].data.delta.stop_reason).to.equal("end_turn");
+  });
+}

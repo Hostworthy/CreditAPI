@@ -123,8 +123,16 @@ own key so you can see its usage and revoke it on its own.
 
 ## Connect an App
 
-Any app or library that supports OpenAI, or an "OpenAI compatible" provider,
-can use CreditAPI. In its AI settings use:
+Any app or library that supports OpenAI, an "OpenAI compatible" provider, or
+Anthropic with a custom base URL can use CreditAPI.
+
+For an **Anthropic** provider, set the base URL to `https://your-server` (some
+apps want `https://your-server/v1`, or a separate URL: then use
+`https://your-server/anthropic`) and the API key to a key from `/admin`.
+Model names such as `claude-haiku-4-5`, `haiku` or `sonnet` work. Details are
+in [API.md](API.md#anthropic-messages-api).
+
+For an **OpenAI** provider, use:
 
 | Setting | Value |
 | --- | --- |

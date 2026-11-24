@@ -15,6 +15,7 @@ the `/admin` and `/login` pages (and scripts). Setup is in
   - [Tool calling](#tool-calling)
   - [Streaming](#streaming)
   - [Errors](#errors)
+- [Anthropic Messages API](#anthropic-messages-api)
 - [Admin API](#admin-api)
 - [Health](#health)
 
@@ -156,6 +157,54 @@ not retry it. After a subscription reports a login failure, it is skipped for
 up to 5 minutes without starting its CLI, until its credential changes or
 `/login` re-checks it. When several subscriptions failed, errors other than a
 login failure report the first one.
+
+## Anthropic Messages API
+
+Apps that speak Anthropic's API can use CreditAPI too: set the base URL to
+`https://your-server` (or `https://your-server/anthropic` if the app needs a
+URL of its own) and use a virtual key as the API key. Keys, subscriptions,
+routing and fallback are the same as for the OpenAI API, so a Cursor
+subscription can answer an Anthropic request.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/v1/messages`, `/anthropic/v1/messages` | Create a message (streaming or not) |
+| `POST` | `/v1/messages/count_tokens`, `/anthropic/v1/messages/count_tokens` | Estimated input tokens (about four characters per token) |
+| `GET` | `/anthropic/v1/models`, `/anthropic/v1/models/{id}` | Models the key can use, Anthropic shape |
+| `GET` | `/v1/models`, `/v1/models/{id}` | Anthropic shape when the request has an `anthropic-version` header, OpenAI shape otherwise |
+
+Send the key as `x-api-key` (what Anthropic SDKs do) or
+`Authorization: Bearer`. The `anthropic-version` header is accepted and not
+checked.
+
+```bash
+curl https://your-server/v1/messages \
+  -H "x-api-key: sk-credit-..." -H "anthropic-version: 2023-06-01" -H "content-type: application/json" \
+  -d '{"model":"claude-haiku-4-5","max_tokens":512,"messages":[{"role":"user","content":"Hi!"}]}'
+```
+
+| Anthropic feature | Support |
+| --- | --- |
+| `system` (string or text blocks), `messages` with text, `image` (base64 or url), `tool_use`, `tool_result` | Yes. Images in tool results become `[image omitted]`; `thinking` blocks are dropped |
+| `stream` | Yes: `message_start`, `content_block_*` (text and `tool_use` with `input_json_delta`), `message_delta`, `message_stop`, `ping`, `error` |
+| `tools` (custom), `tool_choice` (`auto`, `any`, `tool`, `none`, `disable_parallel_tool_use`) | Yes. Server tools (web search, code execution and others) return 400 |
+| `stop_sequences` | Yes; `stop_reason` is `stop_sequence` with the matched `stop_sequence` |
+| `output_format` with `json_schema` | Structured output, returned as a text block holding the JSON |
+| `max_tokens` | Yes (minimum 256, as for OpenAI) |
+| `temperature`, `top_p`, `top_k`, `metadata`, `thinking` | Accepted and ignored |
+| Batches, Files, citations, documents | Not supported |
+
+`stop_reason` is `end_turn`, `max_tokens`, `stop_sequence` or `tool_use`. Tool
+call IDs start with `toolu_`. `usage` carries `input_tokens`, `output_tokens`
+and the cache counters (estimates for Cursor).
+
+Errors use Anthropic's envelope, `{"type": "error", "error": {"type": ..., "message": ...}}`,
+with the same statuses as the OpenAI API except that overload is `529
+overloaded_error`. The types are `invalid_request_error` (400),
+`authentication_error` (401, including the sign-in link when a subscription is
+signed out), `permission_error` (403), `not_found_error` (404),
+`request_too_large` (413), `rate_limit_error` (429), `overloaded_error` (529)
+and `api_error` (500, 502, 504).
 
 ## Admin API
 

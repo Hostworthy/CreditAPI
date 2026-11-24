@@ -51,11 +51,34 @@ func NewHandler(cfg *config.Config, ks *keys.Store, subs *subscriptions.Manager,
 
 // Register adds the routes to mux. Paths are served with and without /v1 so
 // clients configured with either base URL work.
+//
+// The Anthropic Messages API is served at /v1/messages (and under /anthropic
+// for apps that need a separate base URL). /v1/models answers in Anthropic's
+// shape when the client sends an anthropic-version header.
 func (h *Handler) Register(mux *http.ServeMux) {
 	for _, prefix := range []string{"/v1", ""} {
 		mux.HandleFunc("POST "+prefix+"/chat/completions", h.auth(h.chatCompletions))
-		mux.HandleFunc("GET "+prefix+"/models", h.auth(h.listModels))
-		mux.HandleFunc("GET "+prefix+"/models/{id...}", h.auth(h.getModel))
+		mux.HandleFunc("GET "+prefix+"/models", h.authDetect(h.listModels))
+		mux.HandleFunc("GET "+prefix+"/models/{id...}", h.authDetect(h.getModel))
+	}
+	anthropic := anthropicFormat{}
+	for _, prefix := range []string{"/v1", "/anthropic/v1"} {
+		mux.HandleFunc("POST "+prefix+"/messages", h.authAs(anthropic, h.messages))
+		mux.HandleFunc("POST "+prefix+"/messages/count_tokens", h.authAs(anthropic, h.countTokens))
+	}
+	mux.HandleFunc("GET /anthropic/v1/models", h.authAs(anthropic, h.anthropicModels))
+	mux.HandleFunc("GET /anthropic/v1/models/{id...}", h.authAs(anthropic, h.anthropicGetModel))
+}
+
+// authDetect authenticates in the dialect the client speaks.
+func (h *Handler) authDetect(next http.HandlerFunc) http.HandlerFunc {
+	openai, anthropic := h.authAs(openaiFormat{}, next), h.authAs(anthropicFormat{}, next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if isAnthropic(r) {
+			anthropic(w, r)
+			return
+		}
+		openai(w, r)
 	}
 }
 
@@ -66,7 +89,11 @@ func keyFrom(ctx context.Context) *keys.Key {
 	return k
 }
 
-func (h *Handler) auth(next http.HandlerFunc) http.HandlerFunc {
+func (h *Handler) auth(next http.HandlerFunc) http.HandlerFunc { return h.authAs(openaiFormat{}, next) }
+
+// authAs checks the virtual key (Authorization: Bearer, X-Api-Key or
+// Api-Key) and writes failures in format f.
+func (h *Handler) authAs(f format, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		secret := ""
 		if a := r.Header.Get("Authorization"); a != "" {
@@ -84,8 +111,8 @@ func (h *Handler) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		k := h.keys.Authenticate(secret)
 		if k == nil {
-			writeError(w, http.StatusUnauthorized, "invalid_request_error", "invalid_api_key",
-				"Invalid or missing API key. Create a virtual key at /admin and send it as 'Authorization: Bearer <key>'.")
+			f.writeError(w, http.StatusUnauthorized, "invalid_request_error", "invalid_api_key",
+				"Invalid or missing API key. Create a virtual key at /admin and send it as 'Authorization: Bearer <key>' or 'x-api-key: <key>'.")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, k)))
@@ -99,6 +126,10 @@ func modelObject(id string) map[string]any {
 // listModels lists the models the calling key can use, through all of its
 // subscriptions.
 func (h *Handler) listModels(w http.ResponseWriter, r *http.Request) {
+	if isAnthropic(r) {
+		h.anthropicModels(w, r)
+		return
+	}
 	data := []map[string]any{}
 	for _, id := range h.subs.ModelsForKey(keyFrom(r.Context()).ID) {
 		data = append(data, modelObject(id))
@@ -107,6 +138,10 @@ func (h *Handler) listModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getModel(w http.ResponseWriter, r *http.Request) {
+	if isAnthropic(r) {
+		h.anthropicGetModel(w, r)
+		return
+	}
 	id := r.PathValue("id")
 	if _, err := h.subs.Candidates(keyFrom(r.Context()).ID, id); err != nil {
 		writeError(w, http.StatusNotFound, "invalid_request_error", "model_not_found", "model "+id+" is not available")
@@ -121,20 +156,59 @@ func newID() string {
 	return "chatcmpl-" + hex.EncodeToString(b)
 }
 
-func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	key := keyFrom(r.Context())
+// format is an API dialect: how errors and answers are written.
+type format interface {
+	writeError(w http.ResponseWriter, status int, typ, code, msg string)
+	complete(h *Handler, ctx context.Context, w http.ResponseWriter, a *attempt, cr chatRun) (*agent.Result, error)
+	stream(h *Handler, ctx context.Context, w http.ResponseWriter, a *attempt, cr chatRun) (*agent.Result, error)
+}
+
+type openaiFormat struct{}
+
+func (openaiFormat) writeError(w http.ResponseWriter, status int, typ, code, msg string) {
+	writeError(w, status, typ, code, msg)
+}
+
+func (openaiFormat) complete(h *Handler, ctx context.Context, w http.ResponseWriter, a *attempt, cr chatRun) (*agent.Result, error) {
+	return h.complete(ctx, w, a, cr)
+}
+
+func (openaiFormat) stream(h *Handler, ctx context.Context, w http.ResponseWriter, a *attempt, cr chatRun) (*agent.Result, error) {
+	return h.stream(ctx, w, a, cr)
+}
+
+// admit applies MAX_PENDING. The caller must call release when done.
+func (h *Handler) admit(w http.ResponseWriter, f format) (release func(), ok bool) {
 	select {
 	case h.pending <- struct{}{}:
-		defer func() { <-h.pending }()
+		return func() { <-h.pending }, true
 	default:
-		writeError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy",
+		f.writeError(w, http.StatusTooManyRequests, "rate_limit_error", "server_busy",
 			"server is busy: too many requests are waiting, try again shortly (MAX_PENDING)")
-		return
+		return nil, false
 	}
+}
+
+// readBody reads the request body within MAX_BODY_MB.
+func (h *Handler) readBody(w http.ResponseWriter, r *http.Request, f format) ([]byte, bool) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, h.cfg.MaxBodyBytes))
 	if err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request_too_large", "request body is too large (MAX_BODY_MB)")
+		f.writeError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request_too_large", "request body is too large (MAX_BODY_MB)")
+		return nil, false
+	}
+	return body, true
+}
+
+func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	f := openaiFormat{}
+	release, ok := h.admit(w, f)
+	if !ok {
+		return
+	}
+	defer release()
+	body, ok := h.readBody(w, r, f)
+	if !ok {
 		return
 	}
 	var req ChatRequest
@@ -142,31 +216,38 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_json", "invalid JSON body: "+err.Error())
 		return
 	}
+	h.serveChat(w, r, &req, f, start)
+}
+
+// serveChat answers a chat request in OpenAI shape (requests in other
+// dialects are translated first) and writes the answer in format f.
+func (h *Handler) serveChat(w http.ResponseWriter, r *http.Request, req *ChatRequest, f format, start time.Time) {
+	key := keyFrom(r.Context())
 	if len(req.Messages) == 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request_error", "missing_messages", "messages is required")
+		f.writeError(w, http.StatusBadRequest, "invalid_request_error", "missing_messages", "messages is required")
 		return
 	}
 	if req.N != nil && *req.N > 1 {
-		writeError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_n", "n > 1 is not supported")
+		f.writeError(w, http.StatusBadRequest, "invalid_request_error", "unsupported_n", "n > 1 is not supported")
 		return
 	}
 	loginURL := h.loginURL(r)
 	cands, err := h.subs.Candidates(key.ID, req.Model)
 	if err != nil {
-		h.fail(w, err, loginURL)
+		h.failAs(f, w, err, loginURL)
 		return
 	}
 
 	tc := parseToolChoice(req.ToolChoice, req.FunctionCall)
-	tools, toolNames, err := buildTools(&req, tc)
+	tools, toolNames, err := buildTools(req, tc)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_tools", err.Error())
+		f.writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_tools", err.Error())
 		return
 	}
 	jsonObject := req.ResponseFormat != nil && req.ResponseFormat.Type == "json_object"
 	schema, err := jsonSchemaFor(req.ResponseFormat)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_response_format", err.Error())
+		f.writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_response_format", err.Error())
 		return
 	}
 
@@ -177,10 +258,10 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var re *requestError
 		if errors.As(err, &re) {
-			writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_messages", err.Error())
+			f.writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_messages", err.Error())
 		} else {
 			logging.From(r.Context()).Error(logging.Event("chat", "convert", "failed"), logging.Err(err))
-			writeError(w, http.StatusInternalServerError, "api_error", "internal_error", "internal server error; the server log has the details")
+			f.writeError(w, http.StatusInternalServerError, "api_error", "internal_error", "internal server error; the server log has the details")
 		}
 		return
 	}
@@ -209,7 +290,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	release, err := h.slots.Acquire(ctx, h.cfg.QueueTimeout)
 	if err != nil {
-		h.fail(w, err, loginURL)
+		h.failAs(f, w, err, loginURL)
 		return
 	}
 	defer release()
@@ -228,9 +309,9 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		includeUsage: req.StreamOptions != nil && req.StreamOptions.IncludeUsage}
 	var res *agent.Result
 	if req.Stream {
-		res, err = h.stream(ctx, w, run, cr)
+		res, err = f.stream(h, ctx, w, run, cr)
 	} else {
-		res, err = h.complete(ctx, w, run, cr)
+		res, err = f.complete(h, ctx, w, run, cr)
 	}
 
 	log := logging.From(r.Context()).With(slog.String("key", key.Name), slog.String("model", run.served.Model),

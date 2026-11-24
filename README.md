@@ -19,8 +19,8 @@
 <!-- markdownlint-enable MD033 MD041 -->
 
 CreditAPI turns your Claude or Cursor subscriptions into a private,
-OpenAI-compatible API for your own apps. Anything that can talk to an "OpenAI
-compatible" provider can use them through it: chat assistants, self-hosted
+OpenAI- and Anthropic-compatible API for your own apps. Anything that can talk
+to an "OpenAI compatible" or Anthropic provider can use them through it: chat assistants, self-hosted
 tools, scripts and home lab services, with tool calls, photos and structured
 answers.
 
@@ -35,7 +35,7 @@ the server tells you when a login needs renewing.
 
 | Page       | What it is for                                                        |
 | ---------- | --------------------------------------------------------------------- |
-| `/v1`      | The OpenAI-compatible API your apps call                               |
+| `/v1`      | The API your apps call: OpenAI-compatible (`/v1/chat/completions`) and Anthropic-compatible (`/v1/messages`) |
 | `/login`   | Connect or renew a subscription (works well on a phone)                |
 | `/admin`   | Add subscriptions, create API keys and choose which keys use which     |
 | `/healthz` | Health and login status for uptime monitors                           |
